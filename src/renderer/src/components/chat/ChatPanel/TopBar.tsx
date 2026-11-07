@@ -12,6 +12,7 @@ import {
 import { BRANCH_MARK, GitBranchPill, useBranchPillName } from '../../git/GitBranchPill'
 import { GitBranchDropdown } from '../../git/GitBranchDropdown'
 import { GitChangesPill } from '../../git/GitChangesPill'
+import { FilesPillButton } from '../../FilesPanel/FilesPillButton'
 import { AgentPill } from '../../agents/AgentPill'
 import { AuthPillSlot } from '../AuthPill'
 import { useEscapeLayer } from '../../shared/use-escape-layer'
@@ -752,7 +753,7 @@ export function TopBar({ hasContent }: { hasContent: boolean }): React.JSX.Eleme
           paddingTop: isMobileCtx ? 'env(safe-area-inset-top)' : undefined
         }}
         data-testid="TopBar"
-        className="@container/bar shrink-0 h-12 flex items-center justify-between [-webkit-app-region:drag] border-b border-border relative z-30"
+        className="topbar-readable @container/bar shrink-0 h-12 flex items-center justify-between [-webkit-app-region:drag] border-b border-border relative z-30"
       >
         {/* `flex-1`, so this group's width is the space the right cluster leaves
             rather than the width of its own contents. That makes it a DEFINITE
@@ -1125,6 +1126,7 @@ export function TopBar({ hasContent }: { hasContent: boolean }): React.JSX.Eleme
           {/* Never dropped: the changes pill doubles as the git-panel entry
               point (MobileGitView) and self-hides outside a git repo. */}
           <GitChangesPill />
+          <FilesPillButton />
           {/* The popovers below deliberately have no positioned wrapper: they
               anchor to the TopBar itself (the nearest positioned ancestor), so
               they hang below the whole bar right-aligned instead of mid-bar off

@@ -12,7 +12,9 @@ import {
 } from '../../../stores/session-store'
 import { resolveRekeyed } from '../../../stores/replica'
 import { awaitReloadBeforeSpawn } from '../../../lib/session-history-load'
+import { stopSpeaking } from '../../../lib/speak/kokoro-speaker'
 import { voiceController } from '../../../lib/voice/voice-controller'
+import { SUGGESTION_HINT, usePromptSuggestions } from '../../../lib/prompt-suggestions'
 import { noSignalMessage, switchedMessage } from '../../../lib/voice/browser-voice-capture'
 import {
   dismissStaleVoiceOffer,
@@ -149,7 +151,6 @@ export function codexDefaultEffortFor(
 }
 
 const ACCEPTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
-const ACCEPTED_FILE_TYPES = [...ACCEPTED_IMAGE_TYPES, 'application/pdf']
 const MAX_IMAGE_DIMENSION = 2048
 
 function processImageFile(file: File): Promise<{ mediaType: string; base64Data: string }> {
@@ -553,7 +554,13 @@ export function InputBox(): React.JSX.Element {
   const voiceEnabled = useSessionStore((s) => s.settings.voiceEnabled)
   const voiceAvailable = voiceEnabled && capabilities.voice
   const voiceLanguage = useSessionStore((s) => s.settings.voiceLanguage)
+  // Claude Code's guess at what you will say next: ghost text in an empty, idle box, taken with Tab.
+  const suggestion = usePromptSuggestions((s) =>
+    activeSessionId ? s.bySession[activeSessionId] : undefined
+  )
+  const clearSuggestion = usePromptSuggestions((s) => s.clear)
   const voiceState = useActiveSession((s) => s.voiceState) as VoiceStateType
+  const suggestionShown = !!suggestion && text === '' && !isRunning && voiceState === 'idle'
   const voiceInterimTranscript = useActiveSession((s) => s.voiceInterimTranscript)
   const clearVoiceTranscript = useSessionStore((s) => s.clearVoiceTranscript)
 
@@ -856,6 +863,9 @@ export function InputBox(): React.JSX.Element {
 
   const handleVoiceStart = useCallback(async () => {
     if (!activeSessionId || isDisabled || harnessBlocked || voiceState !== 'idle') return
+    // Talking over Claude: the mic press is also the Stop button and silences the voice.
+    stopSpeaking()
+    if (isRunning) void window.api.interruptSession(activeSessionId)
     const press = ++voicePressRef.current
     voiceHeldRef.current = true
     setVoiceHeld(true)
@@ -865,6 +875,8 @@ export function InputBox(): React.JSX.Element {
     } catch (err) {
       // The spawn's own failure is reported by the session path; log only.
       window.api.logRelay('error', 'Voice:InputBox', `voice start failed: ${err}`)
+      voiceHeldRef.current = false
+      setVoiceHeld(false)
       return
     }
     if (!voiceHeldRef.current || voicePressRef.current !== press) return
@@ -879,8 +891,18 @@ export function InputBox(): React.JSX.Element {
       // the notice pill above the mic.
       window.api.logRelay('error', 'Voice:InputBox', `voice start failed: ${err}`)
       reportVoiceError(activeSessionId, err)
+      voiceHeldRef.current = false
+      setVoiceHeld(false)
     }
-  }, [activeSessionId, isDisabled, harnessBlocked, voiceState, ensureSession, voiceLanguage])
+  }, [
+    activeSessionId,
+    isDisabled,
+    harnessBlocked,
+    voiceState,
+    isRunning,
+    ensureSession,
+    voiceLanguage
+  ])
 
   const handleVoiceStop = useCallback(async () => {
     voiceHeldRef.current = false
@@ -893,6 +915,13 @@ export function InputBox(): React.JSX.Element {
       reportVoiceError(activeSessionId, err)
     }
   }, [activeSessionId])
+
+  // The mic button: one tap starts recording, the next stops it. `voiceHeldRef` also
+  // covers a start still spawning the session, so a second tap there cancels it.
+  const handleVoiceToggle = useCallback((): void => {
+    const active = voiceHeldRef.current || voiceState === 'recording' || voiceState === 'connecting'
+    void (active ? handleVoiceStop() : handleVoiceStart())
+  }, [voiceState, handleVoiceStart, handleVoiceStop])
 
   // The microphone itself failing mid-capture (unplugged, muted by the OS) is
   // the capture's news, not the server's — surfaced the same way.
@@ -1032,6 +1061,7 @@ export function InputBox(): React.JSX.Element {
       queueEnabled: capabilities.queue
     })
     if (action.type === 'noop') return
+    if (activeSessionId) clearSuggestion(activeSessionId)
 
     const clearInput = (): void => {
       setText('')
@@ -1114,6 +1144,45 @@ export function InputBox(): React.JSX.Element {
     if (activeSessionId) await window.api.interruptSession(activeSessionId)
   }, [activeSessionId])
 
+  // A suggestion is for the moment before you speak: the next turn starting retires it.
+  useEffect(() => {
+    if (isRunning && activeSessionId) clearSuggestion(activeSessionId)
+  }, [isRunning, activeSessionId, clearSuggestion])
+
+  // Enter from anywhere in the window. The text box has its own Enter, but after a click on the
+  // bot, the mic or a sound button, focus sits on that button and Enter would press it (petting
+  // the bot, toggling the mic). Whenever focus is nowhere in particular or on one of those
+  // buttons, Enter does what it means in a chat: end a recording if one is going, else send.
+  // Captured first so the focused button never sees the key. A dialog being open, or focus in
+  // any other text field or button, leaves Enter alone.
+  const enterRef = useRef({ recording: false, stop: handleVoiceStop, send: handleSend })
+  enterRef.current = {
+    recording: voiceHeld || voiceState === 'recording' || voiceState === 'connecting',
+    stop: handleVoiceStop,
+    send: handleSend
+  }
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (e.key !== 'Enter' || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey || e.isComposing) {
+        return
+      }
+      const target = e.target instanceof HTMLElement ? e.target : null
+      // The text box handles its own Enter (menus and all).
+      if (target && target === textareaRef.current) return
+      const strayFocus =
+        !target || target === document.body || !!target.closest('[data-enter-sends]')
+      if (!strayFocus) return
+      if (document.querySelector('[role="dialog"], [aria-modal="true"]')) return
+      e.preventDefault()
+      e.stopPropagation()
+      if (e.repeat) return
+      const { recording, stop, send } = enterRef.current
+      void (recording ? stop() : send())
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [])
+
   const handleKeyDown = (e: React.KeyboardEvent): void => {
     if (fileMentionHandleKeyDown(e)) return
     if (slashHandleKeyDown(e)) return
@@ -1124,11 +1193,32 @@ export function InputBox(): React.JSX.Element {
     }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
+      // While recording, Enter ends the recording (the words land in the box) and a
+      // second Enter sends. `voiceHeldRef` also covers a start still spawning the session.
+      const recording =
+        voiceHeldRef.current || voiceState === 'recording' || voiceState === 'connecting'
+      if (recording) {
+        if (!e.repeat) void handleVoiceStop()
+        return
+      }
       handleSend()
     }
     if (e.key === 'Escape' && isRunning) handleCancel()
     if (e.key === 'Tab' && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
       e.preventDefault()
+      // With a suggestion showing in the empty box, Tab takes it. (With none, Tab is hold-to-talk.)
+      if (suggestionShown && suggestion && !slashMenuOpen && !fileMentionOpen) {
+        if (!e.repeat && activeSessionId) {
+          setText(suggestion)
+          clearSuggestion(activeSessionId)
+          // The caret goes to the end, ready to edit or send.
+          requestAnimationFrame(() => {
+            const box = textareaRef.current
+            if (box) box.setSelectionRange(suggestion.length, suggestion.length)
+          })
+        }
+        return
+      }
       // Auto-repeat of a held Tab is not a new press: while the renderer's state
       // still lags at idle, each repeat would start again and re-point the
       // native capture at a callback that drops the audio.
@@ -1158,8 +1248,17 @@ export function InputBox(): React.JSX.Element {
   }, [text, voiceInterimTranscript])
 
   const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>): void => {
-    const value = e.target.value
+    let value = e.target.value
+    // Typing while dictating: the box shows the words so far plus the live transcript, but only
+    // the typed text is the user's; the transcript is appended when the recording ends.
+    if (isVoiceActive && voiceInterimTranscript) {
+      const shown = text + (text && !text.endsWith(' ') ? ' ' : '') + voiceInterimTranscript
+      if (value.startsWith(shown)) value = text + value.slice(shown.length)
+      else if (value.endsWith(voiceInterimTranscript))
+        value = value.slice(0, value.length - voiceInterimTranscript.length).trimEnd()
+    }
     setText(value)
+    if (activeSessionId) clearSuggestion(activeSessionId)
     const el = e.target
     el.style.height = 'auto'
     el.style.height = Math.min(el.scrollHeight, 200) + 'px'
@@ -1173,27 +1272,36 @@ export function InputBox(): React.JSX.Element {
   const visionEnabled = capabilities.vision
   const addFiles = useCallback(
     async (files: File[]) => {
-      if (!visionEnabled || !activeSessionId) return
+      if (!activeSessionId) return
       // Capture the target session NOW: file reads are async and the user may
       // switch sessions before they finish. The finished attachments land on the
       // session they were dropped into, never the now-active one (gpt#14).
       const targetSessionId = activeSessionId
-      const accepted = files.filter((f) => ACCEPTED_FILE_TYPES.includes(f.type))
+      const accepted = files
       if (accepted.length === 0) return
       const newAttachments: FileAttachment[] = []
       for (const file of accepted) {
         try {
-          const isPdf = file.type === 'application/pdf'
-          const { mediaType, base64Data } = isPdf
-            ? await readFileAsBase64(file)
-            : await processImageFile(file)
+          // Engines without vision, and images that cannot be processed, go through as
+          // plain files: the host saves them and hands the model the path.
+          const isPdf = visionEnabled && file.type === 'application/pdf'
+          let isImage = visionEnabled && ACCEPTED_IMAGE_TYPES.includes(file.type)
+          let processed: { mediaType: string; base64Data: string } | undefined
+          if (isImage) {
+            try {
+              processed = await processImageFile(file)
+            } catch {
+              isImage = false
+            }
+          }
+          const { mediaType, base64Data } = processed ?? (await readFileAsBase64(file))
           newAttachments.push({
             id: uuid(),
             fileName: file.name,
-            fileType: isPdf ? 'pdf' : 'image',
-            mediaType: mediaType as FileAttachment['mediaType'],
+            fileType: isPdf ? 'pdf' : isImage ? 'image' : 'file',
+            mediaType: isPdf || isImage ? mediaType : mediaType || 'application/octet-stream',
             base64Data,
-            previewUrl: isPdf ? '' : `data:${mediaType};base64,${base64Data}`
+            previewUrl: isImage ? `data:${mediaType};base64,${base64Data}` : ''
           })
         } catch (err) {
           window.api.logError('InputBox', `Failed to process file ${file.name}: ${err}`)
@@ -1212,10 +1320,20 @@ export function InputBox(): React.JSX.Element {
     [addFiles]
   )
 
+  const handleDropFiles = useCallback(
+    async (e: React.DragEvent) => {
+      const files = Array.from(e.dataTransfer.files)
+      if (files.length === 0) return
+      e.preventDefault()
+      await addFiles(files)
+    },
+    [addFiles]
+  )
+
   const handlePaste = useCallback(
     async (e: React.ClipboardEvent) => {
-      const imageItems = Array.from(e.clipboardData.items).filter((item) =>
-        item.type.startsWith('image/')
+      const imageItems = Array.from(e.clipboardData.items).filter(
+        (item) => item.kind === 'file'
       )
       if (imageItems.length === 0) return
       e.preventDefault()
@@ -1493,9 +1611,11 @@ export function InputBox(): React.JSX.Element {
             ? capabilities.queue
               ? 'Type to queue a message...'
               : 'Wait for this turn, or stop it to send another message'
-            : `Ask ${engineMeta(effectiveEngineId).label} anything${
-                capabilities.slashCommands ? ', / for commands' : ''
-              }`
+            : suggestionShown
+              ? `${suggestion}${SUGGESTION_HINT}`
+              : `Ask ${engineMeta(effectiveEngineId).label} anything${
+                  capabilities.slashCommands ? ', / for commands' : ''
+                }`
 
   const textClassName =
     isVoiceActive && voiceInterimTranscript
@@ -1605,7 +1725,6 @@ export function InputBox(): React.JSX.Element {
       displayValue={displayValue}
       isDisabled={isDisabled}
       isRunning={isRunning}
-      isVoiceActive={isVoiceActive}
       placeholder={placeholder}
       textClassName={textClassName}
       permissionMode={permissionMode}
@@ -1648,7 +1767,7 @@ export function InputBox(): React.JSX.Element {
       }
       selectedEngineId={effectiveEngineId}
       engineLocked={engineLocked}
-      showEnginePicker={!engineLocked}
+      showEnginePicker={false}
       effort={effectiveEffort}
       effortSupported={nativeEffortOptions != null || effortCap != null}
       allowedEffortLevels={allowedEffortLevels}
@@ -1671,7 +1790,6 @@ export function InputBox(): React.JSX.Element {
         // is the second source the meter can come from.
         capabilities.contextWindow > 0 || (statusLine?.contextWindow.size ?? 0) > 0
       }
-      visionEnabled={capabilities.vision}
       sandboxEnabled={sandboxEnabled}
       voiceEnabled={voiceAvailable}
       voiceState={voiceState}
@@ -1690,6 +1808,7 @@ export function InputBox(): React.JSX.Element {
       onKeyDown={handleKeyDown}
       onKeyUp={handleKeyUp}
       onPaste={handlePaste}
+      onDropFiles={handleDropFiles}
       onFileChange={handleFileChange}
       onRemoveFile={removeFile}
       onSlashSelect={handleSlashSelect}
@@ -1703,6 +1822,7 @@ export function InputBox(): React.JSX.Element {
       reasoningVariant={reasoningVariant}
       onSelectReasoningVariant={handleSelectReasoningVariant}
       onOpenSandboxSettings={handleOpenSandboxSettings}
+      onVoiceToggle={handleVoiceToggle}
       onVoiceStart={handleVoiceStart}
       onVoiceStop={handleVoiceStop}
     />

@@ -377,8 +377,9 @@ export type ContentBlock =
 export interface FileAttachment {
   id: string
   fileName: string
-  fileType: 'image' | 'pdf'
-  mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp' | 'application/pdf'
+  /** `file` is anything else: the host saves it to disk and points the model at the path. */
+  fileType: 'image' | 'pdf' | 'file'
+  mediaType: string
   base64Data: string
   previewUrl: string
 }
@@ -2349,6 +2350,7 @@ interface GitAPI {
   gitCheckRepo(cwd: string): Promise<boolean>
   gitGetStatus(cwd: string): Promise<GitStatusData>
   gitGetBranches(cwd: string): Promise<GitBranchData>
+  gitGetPrState(cwd: string): Promise<BranchPrInfo>
   gitCheckout(cwd: string, branch: string): Promise<void>
   gitCreateBranch(cwd: string, name: string): Promise<void>
   gitGetFilePatch(
@@ -2618,6 +2620,13 @@ interface FileAPI {
     sessionKey: string,
     filePath: string
   ): Promise<{ src: string } | { error: string }>
+  /**
+   * URL that shows a local file inside the app (Files panel viewer). Main
+   * validates the absolute path and serves exactly that file from a sandboxed
+   * `mockup-asset://<id>.v/` origin. Optional and desktop-only: the web client
+   * has no local filesystem, so callers must probe and hide the affordance.
+   */
+  getFileViewUrl?(filePath: string): Promise<{ url: string } | { error: string }>
   createWorktree(cwd: string, name: string): Promise<WorktreeInfo>
   getWorktreeStatus(worktreePath: string, originalHead: string): Promise<WorktreeStatus>
   /**
@@ -2775,6 +2784,10 @@ interface AccountAPI {
    * resolves opencode model costs. Phase 9b.
    */
   refreshPrices(): Promise<{ count: number; refreshedAt: number }>
+  /** Read the weekly usage pace log (shared with the Claude desktop app). */
+  getUsagePace(): Promise<UsagePaceData>
+  /** Take a fresh weekly usage reading, log it, and return the refreshed pace data. */
+  checkUsagePace(): Promise<UsagePaceData>
   /**
    * Every account's limits, across vendors (ADR-071 §6).
    *
@@ -3702,6 +3715,12 @@ export interface ClaudeAPI
   getVersionInfo(): Promise<{ appVersion: string; cliVersion: string }>
   /** Open the standalone log viewer window */
   openLogViewer(): Promise<void>
+  /** The transcript ids of the chats the Claude desktop app has archived. Desktop window only. */
+  desktopArchivedIds?(): Promise<string[]>
+  /** The active profile and the kid sandbox folder. Desktop window only. */
+  getProfile?(): Promise<import('./profile').ProfileInfo>
+  /** Switches profile; chats started afterwards follow the new profile's rules. */
+  setProfile?(profile: import('./profile').ProfileId): Promise<import('./profile').ProfileInfo>
   /** The pi a user can run in a terminal (`locatePiDisplayPath()`): the resolved
    *  executable, or a System pi's shim rather than its `cli.js`; null if not
    *  found. Settings › pi's subscription hint block (`pi /login`). */
@@ -4291,6 +4310,21 @@ export interface UsageDashboardData {
    * where there is one machine and the question does not arise.
    */
   machines: DashboardMachine[]
+}
+
+/** One reading in `~/.claude/usage-log.csv`, shared with the Claude desktop app's pace check. */
+export interface UsagePaceRow {
+  time: string // ISO8601
+  percentUsed: number
+  /** How far through the weekly window the reading was, 0-100. */
+  elapsedPct: number
+  /** Where the week lands at this rate, as a percent of the weekly limit. */
+  projected: number
+}
+
+export interface UsagePaceData {
+  /** Rows of the week in progress, oldest first. */
+  weekRows: UsagePaceRow[]
 }
 
 export interface AccountUsage {
@@ -5022,6 +5056,15 @@ export interface GitStatusData {
   lineCountsTruncated?: boolean
   /** True when `files`/`staged`/`unstaged`/`untracked` were capped for IPC. */
   filesTruncated?: boolean
+}
+
+/** The pull-request state of a session's current branch. `none`: no branch, no PR, or `gh` unavailable. */
+export type BranchPrState = 'none' | 'draft' | 'open' | 'merged' | 'closed'
+
+/** A branch's pull request: its state, and the GitHub page for it (`null` when `state` is `none`). */
+export interface BranchPrInfo {
+  state: BranchPrState
+  url: string | null
 }
 
 export interface GitBranchData {

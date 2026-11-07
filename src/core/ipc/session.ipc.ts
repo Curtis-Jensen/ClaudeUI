@@ -196,6 +196,7 @@ async function generateTitle(conversationText: string): Promise<string | null> {
     options: {
       ...getSdkExecutableOpts(),
       cwd: PERSISTED_SESSIONS_DIR,
+      persistSession: false,
       abortController: abort,
       // A control request, then abort: no turn to use a plugin's tools.
       reloadPlugins: false
@@ -209,13 +210,17 @@ async function generateTitle(conversationText: string): Promise<string | null> {
         opts?: { persist?: boolean }
       ): Promise<{ title?: string | null } | unknown>
     }
-    const result = await handle.generateSessionTitle(conversationText, { persist: false })
+    const result = await handle.generateSessionTitle(
+      `Start the title with one emoji that fits the topic.\n\n${conversationText}`,
+      { persist: false }
+    )
     const title =
       result && typeof result === 'object' && 'title' in result
         ? (result as { title?: string | null }).title
         : null
-    const trimmed = typeof title === 'string' ? title.trim() : ''
+    let trimmed = typeof title === 'string' ? title.trim() : ''
     if (trimmed.length >= 2) {
+      if (!/^\p{Extended_Pictographic}/u.test(trimmed)) trimmed = `💬 ${trimmed}`
       logger.debug('generateTitle', `title: ${trimmed}`)
       return trimmed
     }
@@ -350,6 +355,7 @@ const SESSION_IPC_CHANNELS = [
   'git:check-repo',
   'git:status',
   'git:branches',
+  'git:pr-state',
   'git:checkout',
   'git:create-branch',
   'git:file-patch',
@@ -375,6 +381,8 @@ const SESSION_IPC_CHANNELS = [
   'usage:dashboard',
   'usage:set-account-filter',
   'usage:refresh-prices',
+  'usage-pace:get',
+  'usage-pace:check',
   'auth:sign-in',
   'auth:submit-code',
   'auth:cancel',
@@ -1439,6 +1447,20 @@ export function registerSessionIpc(authDeps: AuthCommandDeps): SessionManager {
       const svc = gitServiceManager.get(cwd)
       try {
         return await svc.getBranches()
+      } finally {
+        gitServiceManager.release(cwd)
+      }
+    })
+  })
+
+  handleIpc({
+    channel: 'git:pr-state',
+    capability: 'git',
+    kind: 'query',
+    handler: safeHandler(async (cwd: string) => {
+      const svc = gitServiceManager.get(cwd)
+      try {
+        return await svc.getPrState()
       } finally {
         gitServiceManager.release(cwd)
       }

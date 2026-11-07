@@ -275,6 +275,7 @@ async function generateTitle(conversationText: string): Promise<string | null> {
     options: {
       ...getSdkExecutableOpts(),
       cwd: PERSISTED_SESSIONS_DIR,
+      persistSession: false,
       abortController: abort,
       // A control request, then abort: no turn to use a plugin's tools.
       reloadPlugins: false
@@ -1292,6 +1293,12 @@ export function registerRemoteHandlers(
     capability: 'git',
     kind: 'query',
     handler: async (cwd: string) => withGit(cwd, (s) => s.getBranches())
+  })
+  handleRemote({
+    channel: 'git:pr-state',
+    capability: 'git',
+    kind: 'query',
+    handler: async (cwd: string) => withGit(cwd, (s) => s.getPrState())
   })
   handleRemote({
     channel: 'git:checkout',

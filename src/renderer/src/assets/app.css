@@ -425,6 +425,56 @@ html[data-shell='web'] #root {
   }
 }
 
+/* Whole-row status effects (SessionItem sets data-dot-state). A finished thread with a
+   reply to review (data-shine, set by SessionItem): the row's border flashes. A working
+   row shows a turning gear (SessionItem). Pure decoration: pointer-events none, painted over the row but under nothing clickable. */
+@keyframes session-row-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.35),
+      0 0 6px 0 rgba(255, 236, 160, 0.35);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.9),
+      0 0 14px 2px rgba(255, 236, 160, 0.75);
+  }
+}
+@keyframes session-gear-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.session-gear {
+  animation: session-gear-spin 2.4s linear infinite;
+  filter: drop-shadow(0 0 1px rgba(255, 255, 255, 0.9));
+}
+
+[data-testid='SessionItem'][data-shine='true']::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background-repeat: no-repeat;
+}
+[data-testid='SessionItem'][data-shine='true']::before {
+  animation: session-row-glow 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-testid='SessionItem'][data-shine='true']::before {
+    animation: none;
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.9),
+      0 0 12px 2px rgba(255, 236, 160, 0.7);
+  }
+  .session-gear {
+    animation: none;
+  }
+}
+
 @keyframes cursor-blink {
   0%,
   100% {
@@ -441,6 +491,373 @@ html[data-shell='web'] #root {
   }
   to {
     transform: rotate(360deg);
+  }
+}
+
+/* The mood face blinks now and then: a quick squash of both eyes about their centre line. */
+.mood-blink {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: mood-blink 5s infinite;
+}
+
+@keyframes mood-blink {
+  0%,
+  94%,
+  100% {
+    transform: scaleY(1);
+  }
+  97% {
+    transform: scaleY(0.1);
+  }
+}
+
+/* The faint background texture (stars or caustics), fixed to the window so it runs seamlessly across the panels. */
+.app-texture {
+  background-image: var(--app-texture, none);
+  background-size: var(--app-texture-size, auto);
+  background-position: var(--app-texture-position, 0 0);
+  background-attachment: fixed;
+}
+
+/*
+ * The face moves a little all the time, a different way for each mood. Each keeps to a few
+ * pixels or a couple of degrees: enough to feel alive, not enough to pull the eye from the chat.
+ * They turn about the middle of the 48 unit drawing, and stop for anyone who asks for less motion.
+ */
+.face-motion {
+  transform-origin: 24px 24px;
+}
+.face-breathe {
+  animation: face-breathe 4.2s ease-in-out infinite;
+}
+.face-bounce {
+  animation: face-bounce 1.3s ease-in-out infinite;
+}
+.face-bounce-fast {
+  animation: face-bounce 0.55s ease-in-out infinite;
+}
+.face-nod {
+  animation: face-nod 3.6s ease-in-out infinite;
+}
+.face-tilt {
+  animation: face-tilt 3.4s ease-in-out infinite;
+}
+.face-sway {
+  animation: face-sway 4.4s ease-in-out infinite;
+}
+.face-still {
+  animation: face-breathe 6s ease-in-out infinite;
+}
+.face-pop {
+  animation:
+    face-pop 0.5s ease-out 1,
+    face-shiver-small 0.18s linear 0.5s 6;
+}
+.face-shiver {
+  animation: face-shiver 0.26s linear infinite;
+}
+.face-droop {
+  animation: face-droop 5s ease-in-out infinite;
+}
+.face-sag {
+  animation: face-sag 5.5s ease-in-out infinite;
+}
+.face-twitch {
+  animation: face-twitch 4.5s linear infinite;
+}
+
+/* The thought bubble floats up and down a little. */
+.thought-bob {
+  animation: thought-bob 2.6s ease-in-out infinite;
+}
+
+@keyframes thought-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-1px);
+  }
+}
+
+/* The little marks beside the head. */
+.mark-twinkle,
+.mark-pulse,
+.mark-fall {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.mark-twinkle {
+  animation: mark-twinkle 1.6s ease-in-out infinite;
+}
+.mark-pulse {
+  animation: mark-pulse 1.8s ease-in-out infinite;
+}
+.mark-fall {
+  animation: mark-fall 2.6s ease-in infinite;
+}
+
+@keyframes face-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.025);
+  }
+}
+@keyframes face-bounce {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-1.4px);
+  }
+}
+@keyframes face-nod {
+  0%,
+  100% {
+    transform: rotate(0deg) scale(1);
+  }
+  50% {
+    transform: rotate(1.8deg) scale(1.03);
+  }
+}
+@keyframes face-tilt {
+  0%,
+  100% {
+    transform: rotate(-4deg);
+  }
+  50% {
+    transform: rotate(3deg);
+  }
+}
+@keyframes face-sway {
+  0%,
+  100% {
+    transform: translateX(-0.9px);
+  }
+  50% {
+    transform: translateX(0.9px);
+  }
+}
+@keyframes face-pop {
+  0% {
+    transform: scale(0.88);
+  }
+  60% {
+    transform: scale(1.09);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes face-shiver-small {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(0.35px);
+  }
+}
+@keyframes face-shiver {
+  0%,
+  100% {
+    transform: translateX(-0.3px);
+  }
+  50% {
+    transform: translateX(0.3px);
+  }
+}
+@keyframes face-droop {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(1.2px) scale(0.985);
+  }
+}
+@keyframes face-sag {
+  0%,
+  100% {
+    transform: rotate(0deg) translateY(0);
+  }
+  45% {
+    transform: rotate(3.5deg) translateY(1.2px);
+  }
+  60% {
+    transform: rotate(3.5deg) translateY(1.2px);
+  }
+}
+@keyframes face-twitch {
+  0%,
+  90%,
+  100% {
+    transform: translateX(0);
+  }
+  92% {
+    transform: translateX(-0.6px);
+  }
+  94% {
+    transform: translateX(0.6px);
+  }
+  96% {
+    transform: translateX(-0.4px);
+  }
+}
+@keyframes mark-twinkle {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(0.5);
+    opacity: 0.45;
+  }
+}
+@keyframes mark-pulse {
+  0%,
+  100% {
+    transform: scale(0.7);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+}
+@keyframes mark-fall {
+  0% {
+    transform: translateY(-1px);
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(5px);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .face-motion,
+  .mark-twinkle,
+  .mark-pulse,
+  .mark-fall,
+  .thought-bob,
+  .mood-blink,
+  .face-march,
+  .face-hop {
+    animation: none;
+  }
+}
+
+/* A new thread: the face hops in from the left edge of the window, wiggling, and lands in its corner. */
+.face-march {
+  animation: face-march 3.6s ease-in-out forwards;
+}
+
+@keyframes face-march {
+  from {
+    transform: translateX(var(--travel));
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.face-hop {
+  animation: face-hop 0.6s ease-in-out 6 alternate;
+}
+
+@keyframes face-hop {
+  0% {
+    transform: translateY(0) rotate(-12deg) scale(1.05, 0.92);
+  }
+  50% {
+    transform: translateY(-24px) rotate(0deg) scale(0.97, 1.05);
+  }
+  100% {
+    transform: translateY(0) rotate(12deg) scale(1.05, 0.92);
+  }
+}
+
+/* The face hops a little when it is petted. */
+/* The thrown face's hoop when a basket goes in: the net stretches and swings, the rim dips. */
+.hoop-net-swish {
+  transform-box: fill-box;
+  transform-origin: 50% 0;
+  animation: hoop-net-swish 0.7s ease-out;
+}
+
+@keyframes hoop-net-swish {
+  0% {
+    transform: scale(1, 1);
+  }
+  25% {
+    transform: scale(0.82, 1.4) skewX(6deg);
+  }
+  50% {
+    transform: scale(1.06, 0.88) skewX(-4deg);
+  }
+  75% {
+    transform: scale(0.97, 1.06) skewX(2deg);
+  }
+  100% {
+    transform: scale(1, 1);
+  }
+}
+
+.hoop-rim-dip {
+  animation: hoop-rim-dip 0.4s ease-out;
+}
+
+@keyframes hoop-rim-dip {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  30% {
+    transform: translateY(3px);
+  }
+  60% {
+    transform: translateY(-1px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hoop-net-swish,
+  .hoop-rim-dip {
+    animation: none;
+  }
+}
+
+.pet-bounce {
+  animation: pet-bounce 0.45s ease-out;
+}
+
+@keyframes pet-bounce {
+  0% {
+    transform: scale(1) translateY(0);
+  }
+  35% {
+    transform: scale(1.12) translateY(-5px);
+  }
+  70% {
+    transform: scale(0.97) translateY(0);
+  }
+  100% {
+    transform: scale(1) translateY(0);
   }
 }
 
@@ -608,4 +1025,13 @@ html[data-shell='web'] #root {
   .chat-search-flash {
     animation-name: chat-search-flash-fade;
   }
+}
+
+/* The top bar's muted greys are hard to read on the dark themes: its text is white there. The
+   light theme already has dark text, so it keeps its own tokens. */
+html:not([data-theme='light']) .topbar-readable .text-text-muted,
+html:not([data-theme='light']) .topbar-readable .text-text-secondary,
+html:not([data-theme='light']) .topbar-readable .text-text-primary,
+html:not([data-theme='light']) .topbar-readable .hover\:text-text-primary:hover {
+  color: #fff;
 }

@@ -652,6 +652,7 @@ export function createWebSocketApi(connection: RemoteConnection): ClaudeAPI {
     gitCheckRepo: (cwd) => unwrap('git:check-repo', cwd),
     gitGetStatus: (cwd) => unwrap('git:status', cwd),
     gitGetBranches: (cwd) => unwrap('git:branches', cwd),
+    gitGetPrState: (cwd) => unwrap('git:pr-state', cwd),
     gitCheckout: (cwd, branch) => unwrap('git:checkout', cwd, branch),
     gitCreateBranch: (cwd, name) => unwrap('git:create-branch', cwd, name),
     gitGetFilePatch: (cwd, filePath, staged, ignoreWhitespace) =>
@@ -1186,7 +1187,10 @@ export function createWebSocketApi(connection: RemoteConnection): ClaudeAPI {
     // is exactly the line the everything-remote ruling draws. The stub was the
     // quietest of the lot: `{ count: 0 }` renders as "Updated 0 model prices",
     // a success message for a refresh that never happened.
-    refreshPrices: () => unwrap('usage:refresh-prices')
+    refreshPrices: () => unwrap('usage:refresh-prices'),
+
+    getUsagePace: () => unwrap('usage-pace:get'),
+    checkUsagePace: () => unwrap('usage-pace:check')
   }
 
   return api

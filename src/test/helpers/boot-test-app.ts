@@ -281,6 +281,7 @@ function buildTestApi(bridge: TestIpcBridge): ClaudeAPI {
     gitCheckRepo: (cwd) => unwrap('git:check-repo', cwd),
     gitGetStatus: (cwd) => unwrap('git:status', cwd),
     gitGetBranches: (cwd) => unwrap('git:branches', cwd),
+    gitGetPrState: (cwd) => unwrap('git:pr-state', cwd),
     gitCheckout: (cwd, branch) => unwrap('git:checkout', cwd, branch),
     gitCreateBranch: (cwd, name) => unwrap('git:create-branch', cwd, name),
     gitGetFilePatch: (cwd, filePath, staged, ignoreWhitespace) =>
@@ -320,6 +321,8 @@ function buildTestApi(bridge: TestIpcBridge): ClaudeAPI {
     fetchBlockUsage: () => ipcRenderer.invoke('usage:fetch-block'),
     setUsageAccountFilter: async () => {},
     refreshPrices: async () => ({ count: 0, refreshedAt: Date.now() }),
+    getUsagePace: async () => ({ weekRows: [] }),
+    checkUsagePace: async () => ({ weekRows: [] }),
     fetchAccountLimits: (refresh) => ipcRenderer.invoke('usage:limits', refresh ?? false),
     fetchUsageWindows: (query) => ipcRenderer.invoke('usage:windows', query ?? {}),
     fetchUsageDashboard: (range, scope) => ipcRenderer.invoke('usage:dashboard', { range, scope }),

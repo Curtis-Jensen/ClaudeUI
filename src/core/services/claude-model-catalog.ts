@@ -66,6 +66,7 @@ export async function queryClaudeModels(
     options: {
       ...getSdkExecutableOpts(),
       cwd: PERSISTED_SESSIONS_DIR,
+      persistSession: false,
       abortController: abort,
       // Init-only: killed right after the initialize response.
       reloadPlugins: false

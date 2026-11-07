@@ -10,6 +10,7 @@ import type {
   ResultMessage,
   ToolProgressMessage,
   RateLimitEventMessage,
+  PromptSuggestionMessage,
   BashOutputMessage,
   CommandLifecycleMessage,
   ControlResponseMessage
@@ -152,6 +153,9 @@ import {
   OWN_SUBAGENT_TOOL
 } from '../../shared/dispatch-agent-description'
 import { isSessionToolName, sessionToolsGuidance } from '../../shared/session-tools-description'
+import { MOOD_FACE_PROMPT_SECTION } from '../../shared/mood'
+import { kidProfilePromptSection } from '../../shared/profile'
+import { activeProfile, isInKidSandbox, kidProfileDenial, kidSandboxDir } from './profile'
 
 /**
  * The system-prompt section for the `claude-ui-collab` dispatch tool, from the
@@ -949,13 +953,28 @@ export class ClaudeSession extends BaseSession {
         if (myAbort.signal.aborted) return
       }
 
+      // Kid profile: chats run only in the sandbox folder. Refused here, before anything spawns,
+      // because a chat started in the owner's project would otherwise be free to change it.
+      const kidProfile = activeProfile() === 'kid'
+      if (kidProfile && !isInKidSandbox(this.cwd)) {
+        throw new Error(
+          `The kid profile is on, so chats can only run in ${kidSandboxDir()}. Start a new chat from the sidebar, or switch back to the owner's profile.`
+        )
+      }
+
       const q = sdkQuery({
         prompt: channel as AsyncIterable<never>,
         options: {
           ...execOpts,
+          // A guess at the next thing the person will say, shown as ghost text in the input.
+          promptSuggestions: true,
           cwd: this.cwd,
           model: this.model,
-          permissionMode: this.permissionMode as import('../sdk').PermissionMode,
+          // The kid profile never runs without approvals: bypass and auto would skip canUseTool.
+          permissionMode: (kidProfile &&
+          (this.permissionMode === 'bypassPermissions' || this.permissionMode === 'auto')
+            ? 'default'
+            : this.permissionMode) as import('../sdk').PermissionMode,
           systemPrompt: {
             type: 'preset' as const,
             preset: 'claude_code' as const,
@@ -995,76 +1014,88 @@ ${CROSS_ENGINE_DISPATCH_SECTION}`
 ## ClaudeUI Sessions
 ${sessionToolsGuidance({ toolPrefix: SESSION_TOOLS_PREFIX })}`
                 : ''
-            }`
+            }
+${MOOD_FACE_PROMPT_SECTION}${kidProfile ? kidProfilePromptSection(kidSandboxDir()) : ''}`
           },
-          ...(this.sandboxConfig?.enabled
+          ...(kidProfile
             ? {
+                // Shell commands may only write inside the chat's folder, the sandbox.
                 sandbox: {
                   enabled: true,
-                  autoAllowBashIfSandboxed: this.sandboxConfig.autoAllowBashIfSandboxed,
-                  allowUnsandboxedCommands: this.sandboxConfig.allowUnsandboxedCommands,
-                  excludedCommands: this.sandboxConfig.excludedCommands,
-                  // Only pass network config when restrictions are needed.
-                  // Omitting the network key entirely lets the SDK skip domain filtering,
-                  // which is what "restrictNetwork: false" means.
-                  ...(this.sandboxConfig.network.restrictNetwork
-                    ? {
-                        network: {
-                          allowLocalBinding: this.sandboxConfig.network.allowLocalBinding,
-                          allowedDomains: this.sandboxConfig.network.allowedDomains,
-                          ...(this.sandboxConfig.network.allowManagedDomainsOnly
-                            ? { allowManagedDomainsOnly: true }
-                            : {}),
-                          ...(this.sandboxConfig.network.allowAllUnixSockets
-                            ? { allowAllUnixSockets: true }
-                            : {}),
-                          ...(this.sandboxConfig.network.allowUnixSockets.length > 0
-                            ? { allowUnixSockets: this.sandboxConfig.network.allowUnixSockets }
-                            : {})
-                        }
-                      }
-                    : {
-                        // No network restrictions — only pass through binding/socket options if set
-                        ...(this.sandboxConfig.network.allowLocalBinding ||
-                        this.sandboxConfig.network.allowAllUnixSockets ||
-                        this.sandboxConfig.network.allowUnixSockets.length > 0
-                          ? {
-                              network: {
-                                allowLocalBinding: this.sandboxConfig.network.allowLocalBinding,
-                                ...(this.sandboxConfig.network.allowAllUnixSockets
-                                  ? { allowAllUnixSockets: true }
-                                  : {}),
-                                ...(this.sandboxConfig.network.allowUnixSockets.length > 0
-                                  ? {
-                                      allowUnixSockets: this.sandboxConfig.network.allowUnixSockets
-                                    }
-                                  : {})
-                              }
-                            }
-                          : {})
-                      }),
-                  filesystem: {
-                    ...(this.sandboxConfig.filesystem.allowWrite.length > 0
-                      ? { allowWrite: this.sandboxConfig.filesystem.allowWrite }
-                      : {}),
-                    ...(this.sandboxConfig.filesystem.denyWrite.length > 0
-                      ? { denyWrite: this.sandboxConfig.filesystem.denyWrite }
-                      : {}),
-                    ...(this.sandboxConfig.filesystem.denyRead.length > 0
-                      ? { denyRead: this.sandboxConfig.filesystem.denyRead }
-                      : {})
-                  }
+                  autoAllowBashIfSandboxed: true,
+                  allowUnsandboxedCommands: false
                 }
               }
-            : {}),
-          settingSources: ['user', 'project', 'local'],
+            : this.sandboxConfig?.enabled
+              ? {
+                  sandbox: {
+                    enabled: true,
+                    autoAllowBashIfSandboxed: this.sandboxConfig.autoAllowBashIfSandboxed,
+                    allowUnsandboxedCommands: this.sandboxConfig.allowUnsandboxedCommands,
+                    excludedCommands: this.sandboxConfig.excludedCommands,
+                    // Only pass network config when restrictions are needed.
+                    // Omitting the network key entirely lets the SDK skip domain filtering,
+                    // which is what "restrictNetwork: false" means.
+                    ...(this.sandboxConfig.network.restrictNetwork
+                      ? {
+                          network: {
+                            allowLocalBinding: this.sandboxConfig.network.allowLocalBinding,
+                            allowedDomains: this.sandboxConfig.network.allowedDomains,
+                            ...(this.sandboxConfig.network.allowManagedDomainsOnly
+                              ? { allowManagedDomainsOnly: true }
+                              : {}),
+                            ...(this.sandboxConfig.network.allowAllUnixSockets
+                              ? { allowAllUnixSockets: true }
+                              : {}),
+                            ...(this.sandboxConfig.network.allowUnixSockets.length > 0
+                              ? { allowUnixSockets: this.sandboxConfig.network.allowUnixSockets }
+                              : {})
+                          }
+                        }
+                      : {
+                          // No network restrictions — only pass through binding/socket options if set
+                          ...(this.sandboxConfig.network.allowLocalBinding ||
+                          this.sandboxConfig.network.allowAllUnixSockets ||
+                          this.sandboxConfig.network.allowUnixSockets.length > 0
+                            ? {
+                                network: {
+                                  allowLocalBinding: this.sandboxConfig.network.allowLocalBinding,
+                                  ...(this.sandboxConfig.network.allowAllUnixSockets
+                                    ? { allowAllUnixSockets: true }
+                                    : {}),
+                                  ...(this.sandboxConfig.network.allowUnixSockets.length > 0
+                                    ? {
+                                        allowUnixSockets:
+                                          this.sandboxConfig.network.allowUnixSockets
+                                      }
+                                    : {})
+                                }
+                              }
+                            : {})
+                        }),
+                    filesystem: {
+                      ...(this.sandboxConfig.filesystem.allowWrite.length > 0
+                        ? { allowWrite: this.sandboxConfig.filesystem.allowWrite }
+                        : {}),
+                      ...(this.sandboxConfig.filesystem.denyWrite.length > 0
+                        ? { denyWrite: this.sandboxConfig.filesystem.denyWrite }
+                        : {}),
+                      ...(this.sandboxConfig.filesystem.denyRead.length > 0
+                        ? { denyRead: this.sandboxConfig.filesystem.denyRead }
+                        : {})
+                    }
+                  }
+                }
+              : {}),
+          // The kid profile leaves out the owner's user-level instructions, memory and settings.
+          settingSources: kidProfile ? ['project', 'local'] : ['user', 'project', 'local'],
           settings: {
             permissions: {
               allow: [`Edit(${this.cwd}/.claude/ui/**)`, `Write(${this.cwd}/.claude/ui/**)`]
             }
           },
           mcpServers: {
-            ...(this._mcpAllServers as Record<string, never>),
+            ...((kidProfile ? {} : this._mcpAllServers) as Record<string, never>),
             'claude-ui': uiMcpServer as never,
             'claude-ui-mockup': mockupMcpServer as never,
             // Deliberately NOT in allowedTools and NOT auto-allowed in
@@ -1126,6 +1157,11 @@ ${sessionToolsGuidance({ toolPrefix: SESSION_TOOLS_PREFIX })}`
           canUseTool: async (toolName, input, opts) => {
             // cli.js's own word on who is asking, for the session tools to read later.
             if (opts.toolUseId) this.toolUseOwners.note(opts.toolUseId, !!opts.agentId)
+            // Read live, so switching profile mid-chat takes effect on the very next tool call.
+            if (activeProfile() === 'kid') {
+              const refusal = kidProfileDenial(toolName, input as Record<string, unknown>)
+              if (refusal) return { behavior: 'deny' as const, message: refusal }
+            }
             // Auto-allow our in-process UI tools (mermaid, etc.) — no user approval needed
             if (toolName.startsWith('mcp__claude-ui__')) {
               return { behavior: 'allow' as const, updatedInput: input }
@@ -1444,6 +1480,9 @@ ${sessionToolsGuidance({ toolPrefix: SESSION_TOOLS_PREFIX })}`
         return
       case 'rate_limit_event':
         this.handleRateLimitEvent(msg)
+        return
+      case 'prompt_suggestion':
+        this.handlePromptSuggestion(msg)
         return
       case 'bash_output':
         this.handleBashOutput(msg)
@@ -2290,6 +2329,12 @@ ${sessionToolsGuidance({ toolPrefix: SESSION_TOOLS_PREFIX })}`
       typeof response.error === 'string' ? response.error : JSON.stringify(response.error, null, 2)
     logger.error('ClaudeSession', `Control response error: ${errText}`)
     this.send('session:error', `SDK control error: ${errText}`)
+  }
+
+  /** Passes cli.js's suggested next prompt on to the window, which shows it as ghost text. */
+  private handlePromptSuggestion(msg: PromptSuggestionMessage): void {
+    const suggestion = typeof msg.suggestion === 'string' ? msg.suggestion.trim() : ''
+    if (suggestion) this.send('session:prompt-suggestion', suggestion)
   }
 
   private handleRateLimitEvent(msg: RateLimitEventMessage): void {

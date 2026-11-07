@@ -9,6 +9,8 @@ interface AutomationState {
   selectedAutomationId: string | null
   selectedRunId: string | null
   detailTab: DetailTab
+  /** Scheduled-task page: false shows the read-only overview, true the edit form. */
+  editing: boolean
   runs: Record<string, AutomationRun[]> // automationId → runs
   runMessages: ChatMessage[] | null // loaded for selected run
   notificationBadge: number
@@ -21,6 +23,7 @@ interface AutomationState {
   selectRun: (automationId: string, runId: string) => void
   clearRunSelection: () => void
   setDetailTab: (tab: DetailTab) => void
+  setEditing: (editing: boolean) => void
   setRuns: (automationId: string, runs: AutomationRun[]) => void
   updateRun: (automationId: string, run: AutomationRun) => void
   setRunMessages: (messages: ChatMessage[] | null) => void
@@ -37,6 +40,7 @@ export const useAutomationStore = create<AutomationState>((set) => ({
   selectedAutomationId: null,
   selectedRunId: null,
   detailTab: 'configure',
+  editing: false,
   runs: {},
   runMessages: null,
   notificationBadge: 0,
@@ -50,7 +54,8 @@ export const useAutomationStore = create<AutomationState>((set) => ({
       selectedAutomationId: id,
       selectedRunId: null,
       runMessages: null,
-      detailTab: 'configure'
+      detailTab: 'configure',
+      editing: false
     }),
 
   selectRun: (automationId, runId) =>
@@ -60,6 +65,8 @@ export const useAutomationStore = create<AutomationState>((set) => ({
   clearRunSelection: () => set({ selectedRunId: null, runMessages: null, detailTab: 'runs' }),
 
   setDetailTab: (tab) => set({ detailTab: tab }),
+
+  setEditing: (editing) => set({ editing }),
 
   setRuns: (automationId, runs) => set((s) => ({ runs: { ...s.runs, [automationId]: runs } })),
 

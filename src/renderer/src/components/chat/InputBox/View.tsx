@@ -32,6 +32,15 @@ import { useCancelGuard } from '../../../lib/voice/use-cancel-guard'
 
 export type { ModelDisplay }
 
+/**
+ * The input box outline (and the mode tab) wear the thread's color, the same one the window outline
+ * has, instead of a color per mode: the tab's label says which mode it is. Resting, it is a softer
+ * shade of that color; focused, the full color.
+ */
+const THREAD_OUTLINE_STYLE = {
+  '--thread-outline-dim': 'color-mix(in srgb, var(--thread-color, #fb923c) 55%, transparent)'
+} as React.CSSProperties
+
 const DEFAULT_STATUS_LINE: StatusLineData = {
   totalCostUsd: 0,
   totalDurationMs: 0,
@@ -62,7 +71,6 @@ export interface InputBoxViewProps {
   displayValue: string
   isDisabled: boolean
   isRunning: boolean
-  isVoiceActive: boolean
   placeholder: string
   textClassName: string
 
@@ -140,8 +148,6 @@ export interface InputBoxViewProps {
   showCostInStatusLine?: boolean
   /** Show the context-usage meter in the status line. Gated on capabilities.contextWindow > 0. */
   showContextMeter?: boolean
-  /** Show/hide the image/PDF attach affordance (button + drag/drop + paste). Gated on capabilities.vision. */
-  visionEnabled?: boolean
   sandboxEnabled: boolean
   voiceEnabled: boolean
   voiceState: VoiceState
@@ -170,6 +176,7 @@ export interface InputBoxViewProps {
   onKeyDown: (e: React.KeyboardEvent) => void
   onKeyUp: (e: React.KeyboardEvent) => void
   onPaste: (e: React.ClipboardEvent) => void
+  onDropFiles: (e: React.DragEvent) => void
   onFileChange: (e: React.ChangeEvent<HTMLInputElement>) => void
   onRemoveFile: (id: string) => void
   onSlashSelect: (name: string) => void
@@ -185,6 +192,9 @@ export interface InputBoxViewProps {
   reasoningVariant?: string | null
   onSelectReasoningVariant?: (variant: string | null) => void
   onOpenSandboxSettings: () => void
+  /** The mic button: one tap starts recording, the next stops it. */
+  onVoiceToggle: () => void
+  /** The start and stop it is built from; the tests drive them directly. */
   onVoiceStart: () => void
   onVoiceStop: () => void
 }
@@ -313,7 +323,6 @@ function AttachMenu({
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/jpeg,image/png,image/gif,image/webp,application/pdf"
         multiple
         className="hidden"
         onChange={onFileChange}
@@ -543,8 +552,7 @@ function VoiceButton({
   isDisabled,
   buttonRef,
   subscribeLevel,
-  onVoiceStart,
-  onVoiceStop
+  onVoiceToggle
 }: {
   voiceEnabled: boolean
   voiceState: VoiceState
@@ -552,44 +560,10 @@ function VoiceButton({
   isDisabled: boolean
   buttonRef: React.RefObject<HTMLButtonElement | null>
   subscribeLevel?: (listener: (level: number) => void) => () => void
-  onVoiceStart: () => void
-  onVoiceStop: () => void
+  onVoiceToggle: () => void
 }): React.JSX.Element | null {
-  /**
-   * TOUCH is not decoration here (phase 5 S3). Hold-to-talk was mouse-only, and
-   * a mobile browser synthesizes the compatibility mouse pair only AFTER
-   * `touchend` — so a press-and-hold on a phone produced mousedown+mouseup back
-   * to back, i.e. a zero-length capture, and `onMouseLeave` never fired at all.
-   * That makes remote voice input, whose whole point is speaking into a phone,
-   * unusable.
-   *
-   * **Why this is a native listener and not `onTouchStart`.** React registers
-   * `touchstart` (with `touchmove` and `wheel`) as a PASSIVE root listener, so
-   * `e.preventDefault()` inside a React `onTouchStart` handler is silently
-   * ignored — the synthesized mouse pair would still arrive and start a SECOND
-   * capture the moment the first one finished. That second start is not merely
-   * noise: server-side it tears the finalizing capture down, which is exactly
-   * the moment the last transcript is being flushed. The suppression has to be
-   * real, so the listener is attached directly with `{ passive: false }`.
-   *
-   * `startRef` keeps the effect's dependency list empty: the callback identity
-   * changes on every parent render (InputBox does not memoize), and re-binding a
-   * DOM listener per keystroke to call the same function is pure churn.
-   */
-  const startRef = useRef(onVoiceStart)
-  startRef.current = onVoiceStart
-
-  useEffect(() => {
-    const el = buttonRef.current
-    if (!el) return
-    const handleTouchStart = (e: TouchEvent): void => {
-      e.preventDefault()
-      startRef.current()
-    }
-    el.addEventListener('touchstart', handleTouchStart, { passive: false })
-    return () => el.removeEventListener('touchstart', handleTouchStart)
-    // Bound once per mounted button; `voiceEnabled: false` unmounts it entirely.
-  }, [voiceEnabled, buttonRef])
+  // Tap to start, tap again to stop. A plain click covers the mouse and a phone's tap
+  // alike, so none of the old hold-to-talk press/release/touch plumbing is needed.
 
   /**
    * The level ring follows the microphone WITHOUT a React render per block: the
@@ -626,29 +600,15 @@ function VoiceButton({
   return (
     <button
       data-testid="InputBox.voice"
+      data-enter-sends
       data-state={voiceState}
       data-silent={voiceSilent || undefined}
       ref={buttonRef}
-      onMouseDown={(e) => {
-        e.preventDefault()
-        onVoiceStart()
-      }}
-      onMouseUp={onVoiceStop}
-      onMouseLeave={(e) => {
-        // Primary button still down: the press is being abandoned, even if it is
-        // still spawning the session and the state has not left idle yet — a
-        // release elsewhere would never reach this button's mouseup.
-        if (live || (e.buttons & 1) === 1) onVoiceStop()
-      }}
-      // The release half stays on React's synthetic events: only `touchstart` is
-      // passive, and only the start needs to preventDefault.
-      onTouchEnd={onVoiceStop}
-      // A gesture the OS took over (an incoming call, a system swipe) ends with
-      // `touchcancel` and no `touchend`. Without this the microphone would stay
-      // open with nobody holding the button.
-      onTouchCancel={onVoiceStop}
+      // Keep the text box focused: a click must not steal the caret from what is being typed.
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={onVoiceToggle}
       disabled={isDisabled || voiceState === 'processing'}
-      title="Hold to record"
+      title={live ? 'Tap to stop recording' : 'Tap to record'}
       // Connecting: the mic is already open (nothing said is lost) — a pulse.
       // Recording: a filled disc with the level ring around it, dimmed while the
       // microphone is digitally silent. Processing: a spinner while the last
@@ -793,7 +753,6 @@ export function InputBoxView(props: InputBoxViewProps): React.JSX.Element {
     displayValue,
     isDisabled,
     isRunning,
-    isVoiceActive,
     placeholder,
     textClassName,
     permissionMode,
@@ -813,6 +772,7 @@ export function InputBoxView(props: InputBoxViewProps): React.JSX.Element {
     onKeyDown,
     onKeyUp,
     onPaste,
+    onDropFiles,
     onRemoveFile,
     onSlashSelect,
     onFileMentionConfirm
@@ -844,34 +804,21 @@ export function InputBoxView(props: InputBoxViewProps): React.JSX.Element {
       <div className={`${isMobile ? 'max-w-full' : 'max-w-[740px]'} mx-auto`}>
         {props.banner}
         <div
+          style={THREAD_OUTLINE_STYLE}
           className={`group relative rounded-2xl bg-bg-input transition-colors ${
-            permissionMode === 'acceptEdits'
-              ? 'border border-mode-edit-dim focus-within:border-mode-edit'
-              : permissionMode === 'plan'
-                ? 'border border-mode-plan-dim focus-within:border-mode-plan'
-                : permissionMode === 'auto'
-                  ? 'border border-mode-auto-dim focus-within:border-mode-auto'
-                  : 'shadow-[0_1px_6px_rgba(0,0,0,0.12),0_2px_16px_rgba(0,0,0,0.08)] focus-within:shadow-[0_1px_8px_rgba(0,0,0,0.18),0_4px_20px_rgba(0,0,0,0.12)]'
+            permissionMode !== 'default'
+              ? 'border border-[color:var(--thread-outline-dim)] focus-within:border-[color:var(--thread-color,#fb923c)]'
+              : 'shadow-[0_1px_6px_rgba(0,0,0,0.12),0_2px_16px_rgba(0,0,0,0.08)] focus-within:shadow-[0_1px_8px_rgba(0,0,0,0.18),0_4px_20px_rgba(0,0,0,0.12)]'
           }`}
         >
           {/* Mode tab */}
-          {permissionMode !== 'default' && (
+          {permissionMode !== 'default' && permissionMode !== 'auto' && (
             <div
               data-testid="InputBox.modeTab"
               data-mode={permissionMode}
-              className={`absolute bottom-full left-3 px-1.5 pt-0.5 pb-px rounded-t text-[9px] font-semibold tracking-wider uppercase text-text-primary border border-b-0 transition-colors ${
-                permissionMode === 'acceptEdits'
-                  ? 'border-mode-edit-dim group-focus-within:border-mode-edit bg-mode-edit-dim group-focus-within:bg-mode-edit'
-                  : permissionMode === 'auto'
-                    ? 'border-mode-auto-dim group-focus-within:border-mode-auto bg-mode-auto-dim group-focus-within:bg-mode-auto'
-                    : 'border-mode-plan-dim group-focus-within:border-mode-plan bg-mode-plan-dim group-focus-within:bg-mode-plan'
-              }`}
+              className={`absolute bottom-full left-3 px-1.5 pt-0.5 pb-px rounded-t text-[9px] font-semibold tracking-wider uppercase text-text-primary border border-b-0 transition-colors ${'border-[color:var(--thread-outline-dim)] group-focus-within:border-[color:var(--thread-color,#fb923c)] bg-[color:var(--thread-outline-dim)] group-focus-within:bg-[color:var(--thread-color,#fb923c)]'}`}
             >
-              {permissionMode === 'acceptEdits'
-                ? 'Accept Edits'
-                : permissionMode === 'auto'
-                  ? 'Auto ⏵⏵'
-                  : 'Plan'}
+              {permissionMode === 'acceptEdits' ? 'Accept Edits' : 'Plan'}
             </div>
           )}
 
@@ -928,7 +875,10 @@ export function InputBoxView(props: InputBoxViewProps): React.JSX.Element {
             onKeyDown={onKeyDown}
             onKeyUp={onKeyUp}
             onPaste={onPaste}
-            readOnly={isVoiceActive}
+            onDragOver={(e) => {
+              if (e.dataTransfer.types.includes('Files')) e.preventDefault()
+            }}
+            onDrop={onDropFiles}
             placeholder={placeholder}
             disabled={isDisabled}
             rows={2}
@@ -939,9 +889,7 @@ export function InputBoxView(props: InputBoxViewProps): React.JSX.Element {
           <div className="flex items-center justify-between px-1.5 pb-1.5">
             {/* Left controls */}
             <div className="flex items-center gap-1 min-w-0 flex-1">
-              {(props.visionEnabled ?? true) && (
-                <AttachMenu fileInputRef={props.fileInputRef} onFileChange={props.onFileChange} />
-              )}
+              <AttachMenu fileInputRef={props.fileInputRef} onFileChange={props.onFileChange} />
               {isMobile ? (
                 <MobileConfigSheet
                   models={props.models}
@@ -1070,8 +1018,7 @@ export function InputBoxView(props: InputBoxViewProps): React.JSX.Element {
                 isDisabled={isDisabled}
                 buttonRef={micRef}
                 subscribeLevel={props.subscribeVoiceLevel}
-                onVoiceStart={props.onVoiceStart}
-                onVoiceStop={props.onVoiceStop}
+                onVoiceToggle={props.onVoiceToggle}
               />
               <button
                 data-testid="InputBox.send"

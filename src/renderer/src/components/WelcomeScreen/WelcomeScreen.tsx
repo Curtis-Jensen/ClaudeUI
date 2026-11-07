@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useSessionStore } from '../../stores/session-store'
-import { v4 as uuid } from 'uuid'
+import { takeUpcomingChatId } from '../../lib/thread-look'
 import { WelcomeScreenView } from './View'
 
 export function WelcomeScreen(): React.JSX.Element {
@@ -12,7 +12,7 @@ export function WelcomeScreen(): React.JSX.Element {
     try {
       const folder = await window.api.pickFolder()
       if (folder) {
-        const routingId = uuid()
+        const routingId = takeUpcomingChatId()
         createNewSession(routingId, folder)
       }
     } finally {

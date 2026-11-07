@@ -21,6 +21,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import React from 'react'
 import { render, act } from '@testing-library/react'
 import { useSessionStore } from '../../../stores/session-store'
+import { useArchivedChats } from '../../../lib/archived-chats'
 import { bootTestApp, type TestApp } from '@test/helpers/boot-test-app'
 import type { SidebarViewProps } from '../View'
 import type { SessionInfo, DirectoryGroup } from '../../../../../shared/types'
@@ -190,6 +191,196 @@ describe('Sidebar FC', () => {
     expect(viewProps.augmentedDirs[0].folderName).toBe('demo')
   })
 
+  describe('archived chats (from the Claude desktop app)', () => {
+    const listed = (): string[] =>
+      viewProps.augmentedDirs.flatMap((g) => g.sessions.map((s) => s.sessionId))
+
+    async function mountWith(archived: string[], show: boolean, active: string | null = null) {
+      const group = makeDirectoryGroup([
+        makeSessionInfo('keep'),
+        makeSessionInfo('old'),
+        makeSessionInfo('older')
+      ])
+      useArchivedChats.setState({ ids: new Set(archived), show })
+      await act(async () => {
+        await renderFC()
+        await new Promise((r) => setTimeout(r, 0))
+      })
+      act(() => {
+        seed.directories([group])
+        if (active) useSessionStore.setState({ activeSessionId: active })
+      })
+    }
+
+    it('lists every chat, archived ones included, by default', async () => {
+      await mountWith(['old', 'older'], true)
+      expect(listed().sort()).toEqual(['keep', 'old', 'older'])
+      expect(viewProps.showArchived).toBe(true)
+      expect(viewProps.hasAnyArchived).toBe(true)
+    })
+
+    it('with archived chats switched off, lists only the others', async () => {
+      await mountWith(['old', 'older'], false)
+      expect(listed()).toEqual(['keep'])
+      expect(viewProps.showArchived).toBe(false)
+    })
+
+    it('keeps the project itself even when all its chats are archived', async () => {
+      await mountWith(['keep', 'old', 'older'], false)
+      expect(viewProps.augmentedDirs).toHaveLength(1)
+      expect(listed()).toEqual([])
+    })
+
+    it('never takes away the chat that is open right now', async () => {
+      await mountWith(['old', 'older'], false, 'old')
+      expect(listed().sort()).toEqual(['keep', 'old'])
+    })
+
+    it('does not offer the toggle when the desktop app has archived nothing', async () => {
+      await mountWith([], true)
+      expect(viewProps.hasAnyArchived).toBe(false)
+    })
+
+    it('the toggle flips the list', async () => {
+      await mountWith(['old'], true)
+      act(() => viewProps.onShowArchivedToggle?.())
+      expect(listed().sort()).toEqual(['keep', 'older'])
+      act(() => viewProps.onShowArchivedToggle?.())
+      expect(listed().sort()).toEqual(['keep', 'old', 'older'])
+    })
+  })
+
+  describe('bulk select and hide', () => {
+    const picked = (): string[] => [...(viewProps.selectedIds ?? [])].sort()
+
+    async function mountWith(ids: string[], opts: { hidden?: string[]; archived?: string[] } = {}) {
+      const group = makeDirectoryGroup(ids.map((id) => makeSessionInfo(id)))
+      useArchivedChats.setState({ ids: new Set(opts.archived ?? []), show: true })
+      useSessionStore.setState({ hiddenSessionIds: opts.hidden ?? [] })
+      mirrorStoreIntoReplica()
+      await act(async () => {
+        await renderFC()
+        await new Promise((r) => setTimeout(r, 0))
+      })
+      act(() => {
+        seed.directories([group])
+      })
+    }
+    const hiddenIds = (): string[] => [...useSessionStore.getState().hiddenSessionIds].sort()
+
+    it('starts with select mode off and nothing picked', async () => {
+      await mountWith(['a', 'b'])
+      expect(viewProps.selecting).toBe(false)
+      expect(picked()).toEqual([])
+    })
+
+    it('the Select button turns select mode on, and Done turns it off and clears the picks', async () => {
+      await mountWith(['a', 'b'])
+      act(() => viewProps.onToggleSelecting?.())
+      expect(viewProps.selecting).toBe(true)
+      act(() => viewProps.onToggleSelected?.('a'))
+      expect(picked()).toEqual(['a'])
+      act(() => viewProps.onToggleSelecting?.())
+      expect(viewProps.selecting).toBe(false)
+      expect(picked()).toEqual([])
+    })
+
+    it('picks and unpicks single chats', async () => {
+      await mountWith(['a', 'b', 'c'])
+      act(() => viewProps.onToggleSelecting?.())
+      act(() => viewProps.onToggleSelected?.('a'))
+      act(() => viewProps.onToggleSelected?.('c'))
+      expect(picked()).toEqual(['a', 'c'])
+      act(() => viewProps.onToggleSelected?.('a'))
+      expect(picked()).toEqual(['c'])
+    })
+
+    it('All picks every chat shown', async () => {
+      await mountWith(['a', 'b', 'c'])
+      act(() => viewProps.onToggleSelecting?.())
+      act(() => viewProps.onSelectAll?.())
+      expect(picked()).toEqual(['a', 'b', 'c'])
+    })
+
+    it('All leaves out hidden chats while they are out of sight, and takes them once shown', async () => {
+      await mountWith(['a', 'b', 'c'], { hidden: ['b'] })
+      act(() => viewProps.onToggleSelecting?.())
+      act(() => viewProps.onSelectAll?.())
+      expect(picked()).toEqual(['a', 'c'])
+      act(() => viewProps.onShowHiddenToggle())
+      act(() => viewProps.onSelectAll?.())
+      expect(picked()).toEqual(['a', 'b', 'c'])
+    })
+
+    it('Archived picks just the chats the desktop app archived', async () => {
+      await mountWith(['a', 'b', 'c', 'd'], { archived: ['b', 'd'] })
+      act(() => viewProps.onToggleSelecting?.())
+      act(() => viewProps.onSelectArchived?.())
+      expect(picked()).toEqual(['b', 'd'])
+    })
+
+    it('a project box picks all its chats, then lets them all go', async () => {
+      await mountWith(['a', 'b', 'c'])
+      act(() => viewProps.onToggleSelecting?.())
+      act(() => viewProps.onToggleSelectedMany?.(['a', 'b']))
+      expect(picked()).toEqual(['a', 'b'])
+      act(() => viewProps.onToggleSelectedMany?.(['a', 'b', 'c']))
+      expect(picked()).toEqual(['a', 'b', 'c'])
+      act(() => viewProps.onToggleSelectedMany?.(['a', 'b', 'c']))
+      expect(picked()).toEqual([])
+    })
+
+    it('None clears the picks but stays in select mode', async () => {
+      await mountWith(['a', 'b'])
+      act(() => viewProps.onToggleSelecting?.())
+      act(() => viewProps.onSelectAll?.())
+      act(() => viewProps.onClearSelection?.())
+      expect(picked()).toEqual([])
+      expect(viewProps.selecting).toBe(true)
+    })
+
+    it('Hide hides every picked chat, then leaves select mode', async () => {
+      await mountWith(['a', 'b', 'c', 'd'])
+      act(() => viewProps.onToggleSelecting?.())
+      act(() => viewProps.onToggleSelected?.('a'))
+      act(() => viewProps.onToggleSelected?.('c'))
+      act(() => viewProps.onHideSelected?.())
+      expect(hiddenIds()).toEqual(['a', 'c'])
+      expect(viewProps.selecting).toBe(false)
+      expect(picked()).toEqual([])
+    })
+
+    it('hiding nearly everything is one step: All, then Hide', async () => {
+      await mountWith(['a', 'b', 'c', 'd', 'e'])
+      act(() => viewProps.onToggleSelecting?.())
+      act(() => viewProps.onSelectAll?.())
+      act(() => viewProps.onToggleSelected?.('e'))
+      act(() => viewProps.onHideSelected?.())
+      expect(hiddenIds()).toEqual(['a', 'b', 'c', 'd'])
+    })
+
+    it('Hide only counts the picked chats that are not hidden already', async () => {
+      await mountWith(['a', 'b', 'c'], { hidden: ['b'] })
+      act(() => viewProps.onShowHiddenToggle())
+      act(() => viewProps.onToggleSelecting?.())
+      act(() => viewProps.onSelectAll?.())
+      expect(viewProps.selectedHiddenCount).toBe(1)
+      act(() => viewProps.onHideSelected?.())
+      expect(hiddenIds()).toEqual(['a', 'b', 'c'])
+    })
+
+    it('Unhide brings back the picked chats that were hidden', async () => {
+      await mountWith(['a', 'b', 'c'], { hidden: ['a', 'b'] })
+      act(() => viewProps.onShowHiddenToggle())
+      act(() => viewProps.onToggleSelecting?.())
+      act(() => viewProps.onToggleSelected?.('a'))
+      act(() => viewProps.onToggleSelected?.('c'))
+      act(() => viewProps.onUnhideSelected?.())
+      expect(hiddenIds()).toEqual(['b'])
+      expect(viewProps.selecting).toBe(false)
+    })
+  })
+
   // -------------------------------------------------------------------------
   // 2. onNewSessionDblClick — pickFolder → createNewSession
   // -------------------------------------------------------------------------
@@ -257,9 +448,7 @@ describe('Sidebar FC', () => {
       await act(async () => {
         await renderFC()
       })
-      const recent = viewProps.recentSessions.find((s) => s.sessionId === 'pi-never-spawned')
-      expect(recent?.engineId).toBe('pi')
-      // The directory tree's in-memory rows agree.
+      // The directory tree's in-memory row carries the birth engine.
       const tree = viewProps.augmentedDirs.flatMap((group) => group.sessions)
       expect(tree.find((s) => s.sessionId === 'pi-never-spawned')?.engineId).toBe('pi')
     } finally {
@@ -1049,155 +1238,6 @@ describe('Sidebar FC', () => {
     expect(useSessionStore.getState().sessions['cold-sess'].isWatching).toBe(true)
     expect(watchCalls).toHaveLength(1)
     expect(useSessionStore.getState().customTitles['cold-sess']).toBe('Disk Title')
-  })
-
-  // -------------------------------------------------------------------------
-  // 13. Worktree cleanup callbacks
-  // -------------------------------------------------------------------------
-
-  it('onRemoveRecent opens the worktree cleanup modal when the session has worktree info', async () => {
-    useSessionStore.setState({
-      worktreeInfoMap: {
-        'wt-sess': {
-          worktreeName: 'feat-x',
-          worktreePath: '/d/repo/.claude/worktrees/feat-x',
-          worktreeBranch: 'feat/x',
-          gitRoot: '/d/repo'
-        } as any
-      }
-    })
-    mirrorStoreIntoReplica()
-
-    await act(async () => {
-      await renderFC()
-    })
-
-    act(() => {
-      viewProps.onRemoveRecent(makeSessionInfo('wt-sess'))
-    })
-
-    expect(viewProps.cleanupWorktree?.sessionId).toBe('wt-sess')
-  })
-
-  it('onWorktreeCleanupRemove removes from recents and leaves the worktree map to the server', async () => {
-    useSessionStore.setState({
-      recentSessionIds: ['wt-sess'],
-      worktreeInfoMap: {
-        'wt-sess': {
-          worktreeName: 'feat-x',
-          worktreePath: '/p',
-          worktreeBranch: 'b',
-          gitRoot: '/r'
-        } as any
-      }
-    })
-    mirrorStoreIntoReplica()
-
-    await act(async () => {
-      await renderFC()
-    })
-    act(() => {
-      viewProps.onRemoveRecent(makeSessionInfo('wt-sess'))
-    })
-
-    act(() => {
-      viewProps.onWorktreeCleanupRemove()
-    })
-
-    expect(useSessionStore.getState().recentSessionIds).not.toContain('wt-sess')
-    // The server forgets the entry when it removes the worktree; a client-side save of the whole
-    // map could resurrect entries the server already dropped.
-    expect(useSessionStore.getState().worktreeInfoMap['wt-sess']).toBeDefined()
-    expect(viewProps.cleanupWorktree).toBeNull()
-  })
-
-  it('onRemoveRecent does not offer removal for a worktree ClaudeUI only detected (C-S11)', async () => {
-    useSessionStore.setState({
-      recentSessionIds: ['wt-sess'],
-      worktreeInfoMap: {
-        'wt-sess': {
-          worktreeName: 'feat-x',
-          worktreePath: '/p',
-          worktreeBranch: 'b',
-          gitRoot: '/r',
-          originalHeadCommit: '',
-          origin: 'detected'
-        } as any
-      }
-    })
-    mirrorStoreIntoReplica()
-
-    await act(async () => {
-      await renderFC()
-    })
-    act(() => {
-      viewProps.onRemoveRecent(makeSessionInfo('wt-sess'))
-    })
-
-    expect(viewProps.cleanupWorktree).toBeNull()
-    expect(useSessionStore.getState().recentSessionIds).not.toContain('wt-sess')
-  })
-
-  it('onWorktreeCleanupCancel dismisses the modal without touching recents or worktree info', async () => {
-    useSessionStore.setState({
-      recentSessionIds: ['wt-sess'],
-      worktreeInfoMap: {
-        'wt-sess': {
-          worktreeName: 'feat-x',
-          worktreePath: '/p',
-          worktreeBranch: 'b',
-          gitRoot: '/r'
-        } as any
-      }
-    })
-    mirrorStoreIntoReplica()
-
-    await act(async () => {
-      await renderFC()
-    })
-    act(() => {
-      viewProps.onRemoveRecent(makeSessionInfo('wt-sess'))
-    })
-    expect(viewProps.cleanupWorktree?.sessionId).toBe('wt-sess')
-
-    act(() => {
-      viewProps.onWorktreeCleanupCancel()
-    })
-
-    // Modal closed, but recents and worktree info untouched
-    expect(viewProps.cleanupWorktree).toBeNull()
-    expect(useSessionStore.getState().recentSessionIds).toContain('wt-sess')
-    expect(useSessionStore.getState().worktreeInfoMap['wt-sess']).toBeDefined()
-  })
-
-  it('onWorktreeCleanupKeep removes from recents but preserves worktree info', async () => {
-    useSessionStore.setState({
-      recentSessionIds: ['wt-sess'],
-      worktreeInfoMap: {
-        'wt-sess': {
-          worktreeName: 'feat-x',
-          worktreePath: '/p',
-          worktreeBranch: 'b',
-          gitRoot: '/r'
-        } as any
-      }
-    })
-    mirrorStoreIntoReplica()
-
-    await act(async () => {
-      await renderFC()
-    })
-    act(() => {
-      viewProps.onRemoveRecent(makeSessionInfo('wt-sess'))
-    })
-
-    act(() => {
-      viewProps.onWorktreeCleanupKeep()
-    })
-
-    expect(useSessionStore.getState().recentSessionIds).not.toContain('wt-sess')
-    expect(useSessionStore.getState().worktreeInfoMap['wt-sess']).toBeDefined()
-    expect(viewProps.cleanupWorktree).toBeNull()
   })
 
   // -------------------------------------------------------------------------

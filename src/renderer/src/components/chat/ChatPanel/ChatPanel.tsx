@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useState, useMemo, useCallback } from 'react'
 import { overlayItemStreams } from '../../../../../core/shared/sync/item-stream'
 import {
+  editForkAnchor,
   useActiveSession,
   useSessionStore,
   useFocusedAgentData
@@ -28,6 +29,13 @@ import { WelcomeState } from './WelcomeState'
 import { reloadActiveTranscript } from '../../../lib/session-history-load'
 import { describeTranscriptLoad } from '../../../lib/transcript-load-progress'
 import { ProgressBar } from '../../shared/ProgressBar'
+import { MOOD_FACE_INSET_PX, moodFaceSizeForMargin } from '../MoodFace'
+import { FaceCorner } from '../FaceCorner'
+import { SPEECH_RAIL_GUTTER_PX } from '../SpeechRail'
+import { useSpeakReplies } from '../../../lib/speak/use-speak-replies'
+import { useTypingSounds } from '../../../lib/speak/use-typing-sounds'
+import { useTurnSounds } from '../../../lib/speak/use-turn-sounds'
+import { extractMood, type Mood } from '../../../../../shared/mood'
 import { ContextPressureBanner } from './ContextPressureBanner'
 import { HeldMessagesNotice } from './HeldMessagesNotice'
 import { QueuedMessageCard } from './QueuedMessageCard'
@@ -49,6 +57,9 @@ const FULLSCREEN_HINT_TIMEOUT_MS = 10_000
  * between items is this short too; real "waiting for the model" lasts longer.
  */
 const TYPING_INDICATOR_DELAY_MS = 150
+
+/** The face's size when the margin is too narrow to fill: small, but it is still the way to the menu. */
+const FACE_FALLBACK_PX = 32
 
 function readFullscreenHintDismissed(): boolean {
   try {
@@ -88,6 +99,14 @@ export function ChatPanel(): React.JSX.Element {
     }
     return slots
   }, [itemStreams])
+  // The user messages an edit can fork from (see editForkAnchor), so only those show Edit.
+  const editableMessageIds = useMemo(() => {
+    const ids = new Set<string>()
+    messages.forEach((msg, i) => {
+      if (editForkAnchor(messages, i)) ids.add(msg.id)
+    })
+    return ids
+  }, [messages])
   const hasItemStreams = Object.values(itemStreams).some((s) => !s.target.ownerToolUseId)
   const pendingApprovals = useActiveSession((s) => s.pendingApprovals)
   const status = useActiveSession((s) => s.status)
@@ -161,6 +180,9 @@ export function ChatPanel(): React.JSX.Element {
   // see estimate-height.ts). The column is measured in the wrapper's own units from
   // the first message wrapper — the content div is padded and zoomed, a wrapper is
   // neither — and bucketed, so a window resize inside one bucket re-renders nothing.
+  // Each message's wrapper reaches this far into the left margin, so the speech bar can
+  // sit beside its message without being clipped by the wrapper's `content-visibility`.
+  const railGutter = isMobile ? 0 : SPEECH_RAIL_GUTTER_PX
   const [contentEl, setContentEl] = useState<HTMLElement | null>(null)
   const contentRef = useCallback(
     (el: HTMLElement | null) => {
@@ -174,7 +196,8 @@ export function ChatPanel(): React.JSX.Element {
     if (!contentEl) return
     const measure = (): void => {
       const probe = contentEl.firstElementChild
-      const width = probe instanceof HTMLElement ? probe.clientWidth : 0
+      // The wrapper's left strip (see `railGutter`) is not part of the text column.
+      const width = probe instanceof HTMLElement ? probe.clientWidth - railGutter : 0
       if (width > 0) setMeasuredColumn(bucketColumnWidth(width))
     }
     // Reading `clientWidth` here would force a layout ahead of the browser's own;
@@ -187,9 +210,29 @@ export function ChatPanel(): React.JSX.Element {
     const observer = new ResizeObserver(measure)
     observer.observe(contentEl)
     return () => observer.disconnect()
-  }, [contentEl])
+  }, [contentEl, railGutter])
   const columnWidth =
     measuredColumn ?? defaultColumnWidth({ isMobile, mode: chatWidthMode, px: chatWidthPx })
+  // The corner face fills the free margin right of the chat text: from the text's
+  // edge (the content div's edge less its px-8 padding) to the panel's edge.
+  const [faceSize, setFaceSize] = useState<number | null>(null)
+  useEffect(() => {
+    const scroller = contentEl?.parentElement
+    if (!contentEl || !scroller) return
+    const measure = (): void => {
+      // Rects are page px, but the face is sized in this panel's own CSS px, which the app's
+      // `zoom: uiFontScale` stretches: divide the page-px gap down to the panel's units.
+      const pageGap =
+        scroller.getBoundingClientRect().right - contentEl.getBoundingClientRect().right
+      setFaceSize(moodFaceSizeForMargin(pageGap / uiFontScale + 8 + 32 * chatZoom))
+    }
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    observer.observe(contentEl)
+    observer.observe(scroller)
+    return () => observer.disconnect()
+  }, [contentEl, chatZoom, uiFontScale])
   const expandToolCalls = useSessionStore((s) => s.settings.expandToolCalls)
   const expandReadResults = useSessionStore((s) => s.settings.expandReadResults)
   const expandThinking = useSessionStore((s) => s.settings.expandThinking)
@@ -224,6 +267,44 @@ export function ChatPanel(): React.JSX.Element {
     }
     return null
   }, [messages])
+  // The corner face shows how the newest reply feels. A reply that is still being
+  // written has no tag yet, so the face thinks until it arrives.
+  const isRunning = status.state === 'running'
+  const faceMood = useMemo((): Mood => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const message = messages[i]
+      if (message.role !== 'assistant') continue
+      const text = message.content.flatMap((block) => (block.type === 'text' ? [block.text] : []))
+      if (text.length === 0) continue
+      const mood = extractMood(text.join('\n'))
+      if (mood) return mood
+      if (isRunning) return 'thinking'
+    }
+    return isRunning ? 'thinking' : 'calm'
+  }, [messages, isRunning])
+  // A new thread: the face dances across the window as the empty screen appears. A transcript
+  // still loading from disk (evicted) or an existing conversation does not count.
+  const [faceDances, setFaceDances] = useState(0)
+  const [danceFor, setDanceFor] = useState<string | null>(null)
+  if (
+    activeSessionId &&
+    danceFor !== activeSessionId &&
+    messages.length === 0 &&
+    !evicted &&
+    status.state === 'idle'
+  ) {
+    setDanceFor(activeSessionId)
+    setFaceDances((n) => n + 1)
+  }
+  useSpeakReplies(activeSessionId, messages, isRunning)
+  useTypingSounds(isRunning)
+  const lastUserMessageId = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') return messages[i].id
+    }
+    return null
+  }, [messages])
+  useTurnSounds(activeSessionId, status.state, lastUserMessageId)
   // An evicted entry is empty because its transcript is not in memory, not because
   // the conversation is — the disk read that fills it is in flight or was
   // abandoned (ADR-087 §2). `WelcomeState` there would present an existing
@@ -372,9 +453,14 @@ export function ChatPanel(): React.JSX.Element {
                         <div
                           key={msg.id}
                           className="cv-auto"
-                          // Only a never-rendered message uses this: `auto` keeps the
-                          // remembered size afterwards. data-est-h is for calibration.
-                          style={{ containIntrinsicSize: `auto ${estimate}px` }}
+                          style={{
+                            ...(railGutter
+                              ? { marginLeft: -railGutter, paddingLeft: railGutter }
+                              : {}),
+                            // Only a never-rendered message uses this: `auto` keeps the
+                            // remembered size afterwards. data-est-h is for calibration.
+                            containIntrinsicSize: `auto ${estimate}px`
+                          }}
                           data-est-h={estimate}
                           {...SEARCH_ANCHOR}
                         >
@@ -382,6 +468,7 @@ export function ChatPanel(): React.JSX.Element {
                             message={msg}
                             pendingApprovals={pendingApprovals}
                             isLastAssistant={msg.id === lastAssistantId}
+                            canEdit={editableMessageIds.has(msg.id)}
                             activeThinking={activeThinkingByMessage.get(msg.id)}
                           />
                         </div>
@@ -396,8 +483,6 @@ export function ChatPanel(): React.JSX.Element {
             </div>
           )}
         </div>
-
-        <div className="h-8 bg-gradient-to-t from-bg-primary to-transparent pointer-events-none -mt-8 relative z-[1]" />
 
         <div className="relative z-[2]">
           {!isAtBottom && hasContent && (
@@ -427,6 +512,15 @@ export function ChatPanel(): React.JSX.Element {
           <ContextPressureBanner isMobile={isMobile} />
           <QueuedMessageCard isMobile={isMobile} />
           <BtwCard isMobile={isMobile} />
+          {(hasContent || showEmptyScreen) && !isMobile && (
+            // Over the transcript's right margin: click-through, except the face and its menu.
+            <div
+              className="pointer-events-none absolute bottom-full mb-1 z-[1] flex flex-col items-center gap-1"
+              style={{ right: MOOD_FACE_INSET_PX }}
+            >
+              <FaceCorner mood={faceMood} size={faceSize ?? FACE_FALLBACK_PX} dances={faceDances} />
+            </div>
+          )}
           <InputBox />
         </div>
       </div>

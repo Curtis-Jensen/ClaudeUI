@@ -11,6 +11,14 @@ import { WorktreesModal } from '../WorktreesModal'
 import { WorktreeCleanupModal } from '../WorktreeCleanupModal'
 import { NavItem, SafeSvgIcon } from './NavItem'
 import { DirectoryItem } from './DirectoryItem'
+import { NewFolderButton, ProjectFolderRow } from './ProjectFolderRow'
+import {
+  SESSION_DRAG_TYPE,
+  moveSessionToFolder,
+  useProjectFolders
+} from '../../lib/project-folders'
+import { useProfile } from '../../lib/profile'
+import { isInsideOrEqual } from '../../../../shared/profile'
 import { SessionItem } from './SessionItem'
 import { PinnedSessionList } from './PinnedSessionList'
 import { SettingsPanel } from './SettingsPanel'
@@ -45,13 +53,29 @@ export interface SidebarViewProps {
   pinnedSessionIds: string[]
   pinnedSessions: SessionInfo[]
   watchingSessions: SessionInfo[]
-  recentSessions: SessionInfo[]
   augmentedDirs: DirectoryGroup[]
   hiddenSessionSet: Set<string>
   hiddenProjectSet: Set<string>
   hasAnyHidden: boolean
   showHidden: boolean
-  expandedDir: string | null
+  /** The Claude desktop app has archived chats: the toggle for listing them is offered. */
+  hasAnyArchived?: boolean
+  showArchived?: boolean
+  onShowArchivedToggle?: () => void
+  /** Bulk select: pick many chats with checkboxes, then hide (or unhide) them in one go. */
+  selecting?: boolean
+  selectedIds?: ReadonlySet<string>
+  /** How many of the selected chats are already hidden. */
+  selectedHiddenCount?: number
+  onToggleSelecting?: () => void
+  onToggleSelected?: (sessionId: string) => void
+  onToggleSelectedMany?: (sessionIds: string[]) => void
+  onSelectAll?: () => void
+  onSelectArchived?: () => void
+  onClearSelection?: () => void
+  onHideSelected?: () => void
+  onUnhideSelected?: () => void
+  expandedDirs: ReadonlySet<string>
   renamingKey: string | null
   worktreesModalCwd: string | null
   deleteTarget: DeleteTarget | null
@@ -60,6 +84,12 @@ export interface SidebarViewProps {
   cleanupWorktree: { sessionId: string; worktreeInfo: WorktreeInfo } | null
   onToggleCollapse?: () => void
   onNewSession: () => void
+  /** The Chat / Code toggle's state; undefined hides the toggle (kid profile, folder unknown). */
+  appMode?: 'chat' | 'code'
+  onSetAppMode?: (m: 'chat' | 'code') => void
+  /** The active profile's name; with `onSwitchProfile`, shows the profile switch. */
+  profileLabel?: string
+  onSwitchProfile?: () => void
   onNewSessionDblClick: () => void
   onSetActiveView: (v: ActiveView) => void
   onShowHiddenToggle: () => void
@@ -71,7 +101,6 @@ export interface SidebarViewProps {
   onReorderPinned: (ids: string[]) => void
   onFinishRename: (sessionId: string, title: string) => void
   onAutoRename: (sessionId: string) => void
-  onRemoveRecent: (info: SessionInfo) => void
   onDirClick: (key: string) => void
   onDirDoubleClick: (group: DirectoryGroup) => void
   onSessionDoubleClick: (info: SessionInfo) => void
@@ -90,6 +119,8 @@ export interface SidebarViewProps {
   onWorktreeCleanupCancel: () => void
 }
 
+const NO_SELECTION: ReadonlySet<string> = new Set()
+
 export function SidebarView(props: SidebarViewProps): React.JSX.Element {
   const {
     style,
@@ -102,13 +133,26 @@ export function SidebarView(props: SidebarViewProps): React.JSX.Element {
     pinnedSessionIds,
     pinnedSessions,
     watchingSessions,
-    recentSessions,
     augmentedDirs,
     hiddenSessionSet,
     hiddenProjectSet,
     hasAnyHidden,
     showHidden,
-    expandedDir,
+    hasAnyArchived = false,
+    showArchived = true,
+    onShowArchivedToggle,
+    selecting = false,
+    selectedIds = NO_SELECTION,
+    selectedHiddenCount = 0,
+    onToggleSelecting,
+    onToggleSelected,
+    onToggleSelectedMany,
+    onSelectAll,
+    onSelectArchived,
+    onClearSelection,
+    onHideSelected,
+    onUnhideSelected,
+    expandedDirs,
     renamingKey,
     worktreesModalCwd,
     deleteTarget,
@@ -116,18 +160,20 @@ export function SidebarView(props: SidebarViewProps): React.JSX.Element {
     cleanupWorktree,
     onToggleCollapse,
     onNewSession,
+    appMode,
+    onSetAppMode,
+    profileLabel,
+    onSwitchProfile,
     onNewSessionDblClick,
     onSetActiveView,
     onShowHiddenToggle,
     onSetRenamingKey,
     onClickSession,
     onToggleWatch,
-    onPin,
     onUnpin,
     onReorderPinned,
     onFinishRename,
     onAutoRename,
-    onRemoveRecent,
     onDirClick,
     onDirDoubleClick,
     onSessionDoubleClick,
@@ -145,12 +191,14 @@ export function SidebarView(props: SidebarViewProps): React.JSX.Element {
     onWorktreeCleanupRemove,
     onWorktreeCleanupCancel
   } = props
+  const projectFolders = useProjectFolders()
+  const chatDir = useProfile((s) => s.chatDir)
 
   return (
     <div
       data-testid="Sidebar"
       style={style}
-      className={`shrink-0 h-full flex flex-col select-none ${platform === 'darwin' ? 'bg-bg-secondary/60' : 'bg-bg-secondary/85'}`}
+      className={`app-texture shrink-0 h-full flex flex-col select-none ${platform === 'darwin' ? 'bg-bg-secondary/60' : 'bg-bg-secondary/85'}`}
     >
       {/* Traffic light clearance + collapse toggle */}
       <div className="h-12 shrink-0 [-webkit-app-region:drag] relative">
@@ -183,6 +231,29 @@ export function SidebarView(props: SidebarViewProps): React.JSX.Element {
         </button>
       </div>
 
+      {appMode && onSetAppMode && (
+        <div
+          data-testid="Sidebar.modeToggle"
+          style={{ margin: '0 8px 8px' }}
+          className="flex gap-1 p-1 rounded-lg bg-bg-hover/60"
+        >
+          {(['chat', 'code'] as const).map((m) => (
+            <button
+              key={m}
+              data-testid={`Sidebar.mode.${m}`}
+              onClick={() => onSetAppMode(m)}
+              className={`flex-1 py-1 text-[13px] rounded-md cursor-default transition-colors ${
+                appMode === m
+                  ? 'bg-bg-primary text-text-primary shadow-sm'
+                  : 'text-text-muted hover:text-text-primary'
+              }`}
+            >
+              {m === 'chat' ? 'Chat' : 'Code'}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Top nav */}
       <nav style={{ margin: '0 8px' }} className="flex flex-col gap-px">
         <NavItem
@@ -204,8 +275,29 @@ export function SidebarView(props: SidebarViewProps): React.JSX.Element {
             </svg>
           }
         />
+        {onSwitchProfile && (
+          <NavItem
+            label={`Profile: ${profileLabel ?? ''} (switch)`}
+            onClick={onSwitchProfile}
+            icon={
+              <svg
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <circle cx="12" cy="8" r="4" />
+                <path d="M4 21v-1a6 6 0 016-6h4a6 6 0 016 6v1" />
+              </svg>
+            }
+          />
+        )}
         <NavItem
-          label="Automations"
+          label="Scheduled"
           active={activeView.type === 'automations'}
           onClick={() => {
             onSetActiveView(
@@ -292,6 +384,9 @@ export function SidebarView(props: SidebarViewProps): React.JSX.Element {
               onHideSession={onHideSession}
               onUnhideSession={onUnhideSession}
               onDeleteSession={onDeleteSession}
+              selecting={selecting}
+              selectedIds={selectedIds}
+              onToggleSelected={onToggleSelected}
             />
           </div>
         )}
@@ -323,42 +418,9 @@ export function SidebarView(props: SidebarViewProps): React.JSX.Element {
                     onHide={!sessionHidden ? () => onHideSession(info) : undefined}
                     onUnhide={sessionHidden ? () => onUnhideSession(info) : undefined}
                     onDelete={info.projectKey ? () => onDeleteSession(info) : undefined}
-                  />
-                )
-              })}
-            </nav>
-          </div>
-        )}
-
-        {/* Recent sessions */}
-        {recentSessions.length > 0 && (
-          <div style={{ margin: '20px 8px 0' }}>
-            <div style={{ paddingLeft: 5, marginBottom: 3 }}>
-              <span className="text-[10px] font-semibold text-text-muted uppercase tracking-[0.08em]">
-                Recent
-              </span>
-            </div>
-            <nav className="flex flex-col gap-px">
-              {recentSessions.map((info) => {
-                const sessionHidden = hiddenSessionSet.has(info.sessionId)
-                return (
-                  <SessionItem
-                    key={info.sessionId}
-                    info={info}
-                    active={info.sessionId === activeSessionId}
-                    onClick={() => onClickSession(info)}
-                    onToggleWatch={info.projectKey ? () => onToggleWatch(info) : undefined}
-                    onPin={() => onPin(info.sessionId)}
-                    onRemove={() => onRemoveRecent(info)}
-                    isRenaming={renamingKey === `recent:${info.sessionId}`}
-                    onStartRename={() => onSetRenamingKey(`recent:${info.sessionId}`)}
-                    onFinishRename={(title) => onFinishRename(info.sessionId, title)}
-                    onAutoRename={() => onAutoRename(info.sessionId)}
-                    onCancelRename={() => onSetRenamingKey(null)}
-                    hidden={sessionHidden}
-                    onHide={!sessionHidden ? () => onHideSession(info) : undefined}
-                    onUnhide={sessionHidden ? () => onUnhideSession(info) : undefined}
-                    onDelete={info.projectKey ? () => onDeleteSession(info) : undefined}
+                    selecting={selecting}
+                    selected={selectedIds.has(info.sessionId)}
+                    onToggleSelected={() => onToggleSelected?.(info.sessionId)}
                   />
                 )
               })}
@@ -376,27 +438,150 @@ export function SidebarView(props: SidebarViewProps): React.JSX.Element {
               <span className="text-[10px] font-semibold text-text-muted uppercase tracking-[0.08em]">
                 Projects
               </span>
-              {hasAnyHidden && (
-                <button
-                  data-testid="Sidebar.showHiddenToggle"
-                  onClick={onShowHiddenToggle}
-                  className="text-[10px] text-text-muted hover:text-text-primary transition-colors cursor-default"
-                  title={showHidden ? 'Hide dimmed items' : 'Show hidden items'}
-                >
-                  {showHidden ? 'Hide hidden' : 'Show hidden'}
-                </button>
-              )}
+              {
+                <div className="flex items-center gap-2">
+                  {appMode === 'chat' && <NewFolderButton />}
+                  <button
+                    type="button"
+                    data-testid="Sidebar.selectToggle"
+                    aria-pressed={selecting}
+                    onClick={onToggleSelecting}
+                    className="text-[10px] text-text-muted hover:text-text-primary transition-colors cursor-default"
+                    title={selecting ? 'Leave select mode' : 'Pick many chats to hide at once'}
+                  >
+                    {selecting ? 'Done' : 'Select'}
+                  </button>
+                  {hasAnyArchived && (
+                    <button
+                      data-testid="Sidebar.showArchivedToggle"
+                      aria-pressed={showArchived}
+                      onClick={onShowArchivedToggle}
+                      className="text-[10px] text-text-muted hover:text-text-primary transition-colors cursor-default"
+                      title={
+                        showArchived
+                          ? 'Showing archived chats too. Click to show only chats that are not archived.'
+                          : 'Showing only chats that are not archived. Click to include archived chats.'
+                      }
+                    >
+                      {showArchived ? 'Hide archived' : 'Show archived'}
+                    </button>
+                  )}
+                  {hasAnyHidden && (
+                    <button
+                      data-testid="Sidebar.showHiddenToggle"
+                      onClick={onShowHiddenToggle}
+                      className="text-[10px] text-text-muted hover:text-text-primary transition-colors cursor-default"
+                      title={showHidden ? 'Hide dimmed items' : 'Show hidden items'}
+                    >
+                      {showHidden ? 'Hide hidden' : 'Show hidden'}
+                    </button>
+                  )}
+                </div>
+              }
             </div>
-            <nav className="flex flex-col gap-px">
-              {augmentedDirs
-                .filter((group) => showHidden || !hiddenProjectSet.has(group.projectKey))
-                .map((group) => {
+            {selecting && (
+              <div
+                data-testid="Sidebar.bulkBar"
+                className="flex flex-wrap items-center gap-x-2 gap-y-1 pr-1 pb-1 text-[10px] text-text-muted"
+              >
+                <span data-testid="Sidebar.selectedCount" className="text-text-primary">
+                  {selectedIds.size} selected
+                </span>
+                <button
+                  type="button"
+                  data-testid="Sidebar.selectAll"
+                  onClick={onSelectAll}
+                  className="hover:text-text-primary transition-colors cursor-default"
+                >
+                  All
+                </button>
+                {hasAnyArchived && (
+                  <button
+                    type="button"
+                    data-testid="Sidebar.selectArchived"
+                    onClick={onSelectArchived}
+                    title="Pick every chat the Claude desktop app has archived"
+                    className="hover:text-text-primary transition-colors cursor-default"
+                  >
+                    Archived
+                  </button>
+                )}
+                <button
+                  type="button"
+                  data-testid="Sidebar.clearSelection"
+                  onClick={onClearSelection}
+                  disabled={selectedIds.size === 0}
+                  className="hover:text-text-primary transition-colors cursor-default disabled:opacity-40"
+                >
+                  None
+                </button>
+                <span className="flex-1" />
+                {selectedHiddenCount > 0 && (
+                  <button
+                    type="button"
+                    data-testid="Sidebar.unhideSelected"
+                    onClick={onUnhideSelected}
+                    className="hover:text-text-primary transition-colors cursor-default"
+                  >
+                    Unhide {selectedHiddenCount}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  data-testid="Sidebar.hideSelected"
+                  onClick={onHideSelected}
+                  disabled={selectedIds.size - selectedHiddenCount === 0}
+                  className="rounded px-1.5 py-0.5 bg-bg-hover text-text-primary hover:bg-bg-tertiary transition-colors cursor-default disabled:opacity-40"
+                >
+                  Hide {selectedIds.size - selectedHiddenCount}
+                </button>
+              </div>
+            )}
+            <nav
+              className="flex flex-col gap-px"
+              // Dropping a thread on the plain list takes it back out of its folder.
+              onDragOver={(e) => {
+                if (appMode === 'chat' && e.dataTransfer.types.includes(SESSION_DRAG_TYPE)) {
+                  e.preventDefault()
+                  e.dataTransfer.dropEffect = 'move'
+                }
+              }}
+              onDrop={(e) => {
+                const id = e.dataTransfer.getData(SESSION_DRAG_TYPE)
+                if (appMode !== 'chat' || !id) return
+                e.preventDefault()
+                moveSessionToFolder(id, null)
+              }}
+            >
+              {(() => {
+                const visibleGroups = augmentedDirs
+                  .filter((group) => showHidden || !hiddenProjectSet.has(group.projectKey))
+                  // A folder whose chats are all hidden has nothing to show, so it goes too.
+                  .filter(
+                    (group) =>
+                      showHidden || group.sessions.some((s) => !hiddenSessionSet.has(s.sessionId))
+                  )
+                // Folders belong to the Chat tab only; the Code tab lists projects as it always did.
+                const inChat = appMode === 'chat'
+                const renderGroup = (
+                  group: DirectoryGroup,
+                  opts?: { flat?: boolean; keySuffix?: string }
+                ): React.JSX.Element => {
                   const projectHidden = !!group.projectKey && hiddenProjectSet.has(group.projectKey)
                   return (
                     <DirectoryItem
-                      key={group.projectKey || group.cwd}
+                      key={`${group.projectKey || group.cwd}${opts?.keySuffix ?? ''}`}
                       group={group}
-                      expanded={expandedDir === (group.projectKey || group.cwd)}
+                      folders={inChat}
+                      // Chat tab: loose chats list bare; a project folder inside the chat folder keeps its header.
+                      flat={
+                        opts?.flat ??
+                        (appMode === 'chat' &&
+                          (!chatDir ||
+                            !isInsideOrEqual(chatDir, group.cwd) ||
+                            isInsideOrEqual(group.cwd, chatDir)))
+                      }
+                      expanded={expandedDirs.has(group.projectKey || group.cwd)}
                       activeSessionId={activeSessionId}
                       onClick={() => onDirClick(group.projectKey || group.cwd)}
                       onDoubleClick={() => onDirDoubleClick(group)}
@@ -426,12 +611,65 @@ export function SidebarView(props: SidebarViewProps): React.JSX.Element {
                       onDelete={group.projectKey ? () => onDeleteProject(group) : undefined}
                       hiddenSessionIds={hiddenSessionSet}
                       showHidden={showHidden}
+                      selecting={selecting}
+                      selectedIds={selectedIds}
+                      onToggleSelected={onToggleSelected}
+                      onToggleProject={onToggleSelectedMany}
                       onHideSession={onHideSession}
                       onUnhideSession={onUnhideSession}
                       onDeleteSession={onDeleteSession}
                     />
                   )
-                })}
+                }
+                if (!inChat) return <>{visibleGroups.map((group) => renderGroup(group))}</>
+
+                const sessionFolder = (id: string): string | undefined =>
+                  projectFolders.sessionAssignments[id]
+                const projectFolder = (group: DirectoryGroup): string | undefined =>
+                  projectFolders.assignments[group.projectKey || group.cwd]
+                // A thread filed in a folder leaves its project's list; a project left with
+                // none of its threads shows nothing.
+                const looseGroups = visibleGroups
+                  .map((group) => ({
+                    ...group,
+                    sessions: group.sessions.filter((info) => !sessionFolder(info.sessionId))
+                  }))
+                  .filter(
+                    (group, i) =>
+                      group.sessions.length > 0 || visibleGroups[i].sessions.length === 0
+                  )
+                return (
+                  <>
+                    {looseGroups
+                      .filter((group) => !projectFolder(group))
+                      .map((group) => renderGroup(group))}
+                    {projectFolders.folders.map((folder) => {
+                      const projects = looseGroups.filter(
+                        (group) => projectFolder(group) === folder.id
+                      )
+                      const threadGroups = visibleGroups
+                        .map((group) => ({
+                          ...group,
+                          sessions: group.sessions.filter(
+                            (info) => sessionFolder(info.sessionId) === folder.id
+                          )
+                        }))
+                        .filter((group) => group.sessions.length > 0)
+                      const count =
+                        projects.reduce((n, group) => n + group.sessions.length, 0) +
+                        threadGroups.reduce((n, group) => n + group.sessions.length, 0)
+                      return (
+                        <ProjectFolderRow key={folder.id} folder={folder} count={count}>
+                          {projects.map((group) => renderGroup(group))}
+                          {threadGroups.map((group) =>
+                            renderGroup(group, { flat: true, keySuffix: `@${folder.id}` })
+                          )}
+                        </ProjectFolderRow>
+                      )
+                    })}
+                  </>
+                )
+              })()}
             </nav>
           </div>
         )}

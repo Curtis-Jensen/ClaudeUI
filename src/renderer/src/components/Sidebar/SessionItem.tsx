@@ -1,22 +1,32 @@
 import { useState, useEffect, useRef, memo } from 'react'
 import { useSessionStore } from '../../stores/session-store'
+import { useThreadLooks } from '../../lib/thread-look'
+import { threadAccent, threadHue, threadRowStyle } from '../../lib/thread-theme'
 import { useShallow } from 'zustand/react/shallow'
-import type { SessionInfo } from '../../../../shared/types'
+import type { ChatMessage, SessionInfo } from '../../../../shared/types'
 import { PermissionsDialog } from '../PermissionsDialog'
 import { useContextMenu } from '../../hooks/useContextMenu'
-import { EngineLogo } from '../shared/EngineLogo'
 import { countDotTasks } from '../../lib/task-types'
-import { StatusDot, deriveSessionDotState } from './StatusDot'
+import { deriveSessionDotState } from './StatusDot'
 import { originLinkOf, sessionTitleOf } from '../../lib/session-links'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { linkedWorktreeFor } from '../../../../shared/linked-worktree'
+import { useBranchPr } from '../../lib/branch-pr-state'
+import { BranchPrIcon } from './BranchPrIcon'
+
+function lastMessageIsReply(messages: ChatMessage[] | undefined): boolean {
+  const last = messages?.[messages.length - 1]
+  return (
+    last?.role === 'assistant' &&
+    last.content.some((b) => b.type === 'text' && b.text.trim().length > 0)
+  )
+}
 
 export const SessionItem = memo(function SessionItem({
   info,
   active,
   onClick,
   onDoubleClick,
-  onToggleWatch,
   onPin,
   onUnpin,
   onRemove,
@@ -37,7 +47,10 @@ export const SessionItem = memo(function SessionItem({
   depth = 0,
   memberCount = 0,
   membersCollapsed = false,
-  onToggleMembers
+  onToggleMembers,
+  selecting = false,
+  selected = false,
+  onToggleSelected
 }: {
   info: SessionInfo
   active: boolean
@@ -72,21 +85,35 @@ export const SessionItem = memo(function SessionItem({
   membersCollapsed?: boolean
   /** Fold or unfold the group (the toggle shows only on a head with members). */
   onToggleMembers?: () => void
+  /** Bulk-select mode: the row shows a checkbox and a click picks it instead of opening it. */
+  selecting?: boolean
+  selected?: boolean
+  onToggleSelected?: () => void
 }): React.JSX.Element {
+  // The chat's color, the one its face, window border and background use: its own, unless the
+  // person changed it. Only this row's change redraws this row.
+  const chosenHue = useThreadLooks((s) => s.overrides[info.sessionId]?.hue)
+  const hue = chosenHue ?? threadHue(info.sessionId)
+  const rowColors = threadRowStyle(hue, active)
+
   // Self-subscribe to session status fields — avoids parent needing the full sessions map
-  const { isRunning, isSdkActive, isWatching, needsAttention, runningSubagents } = useSessionStore(
-    useShallow((s) => {
-      const sess = s.sessions[info.sessionId]
-      return {
-        isRunning: sess?.status?.state === 'running',
-        isSdkActive: !!sess?.sdkActive,
-        isWatching: !!sess?.isWatching,
-        needsAttention: !!sess?.needsAttention,
-        // A count, not the record map, so useShallow skips the rows whose tasks didn't change.
-        runningSubagents: sess ? countDotTasks(sess.activeTasks, !!sess.sdkActive) : 0
-      }
-    })
-  )
+  const { isRunning, isSdkActive, isWatching, needsAttention, hasSummary, runningSubagents } =
+    useSessionStore(
+      useShallow((s) => {
+        const sess = s.sessions[info.sessionId]
+        return {
+          isRunning: sess?.status?.state === 'running',
+          isSdkActive: !!sess?.sdkActive,
+          isWatching: !!sess?.isWatching,
+          needsAttention: !!sess?.needsAttention,
+          // A finished reply to review: the thread ends on an assistant message with text, not
+          // on the user's own prompt or a tool call mid-turn.
+          hasSummary: lastMessageIsReply(sess?.messages),
+          // A count, not the record map, so useShallow skips the rows whose tasks didn't change.
+          runningSubagents: sess ? countDotTasks(sess.activeTasks, !!sess.sdkActive) : 0
+        }
+      })
+    )
   // A recorded entry (EnterWorktree / session.moved / created here), or the session's cwd being a
   // linked worktree per the directory listing (any engine, any layout). The live session's cwd
   // wins over the listing's, which can lag a brand-new session.
@@ -95,6 +122,7 @@ export const SessionItem = memo(function SessionItem({
       !!s.worktreeInfoMap[info.sessionId] ||
       linkedWorktreeFor(s.directories, s.sessions[info.sessionId]?.cwd || info.cwd) !== null
   )
+  const pr = useBranchPr(useSessionStore((s) => s.sessions[info.sessionId]?.cwd || info.cwd))
   // The link to the session that started this one, when there is one (slices 1b, 5):
   // the hint names it on every row (grouped or not), and the menu moves the row in or
   // out of the group.
@@ -132,8 +160,8 @@ export const SessionItem = memo(function SessionItem({
   // Right-side icon overlay is sized to its actual icon count. Each icon ≈20px
   // (icon + gap) tightly wrapped, plus 5px right padding, plus a 40px blur-in
   // transition zone extending to the left.
-  const rightIconCount =
-    (isWorktree ? 1 : 0) + (onPin || onUnpin ? 1 : 0) + (onToggleWatch && !isSdkActive ? 1 : 0)
+  const canArchive = !!onHide && !hidden
+  const rightIconCount = (isWorktree ? 1 : 0) + (onPin || onUnpin ? 1 : 0) + (canArchive ? 1 : 0)
   const blurWidthPx = rightIconCount * 20 + 45
   // What the icons themselves take at the right edge (the 40px blur-in zone is
   // only a fade): the room an in-flow control at the row's end must leave.
@@ -144,8 +172,9 @@ export const SessionItem = memo(function SessionItem({
   useEffect(() => {
     if (isRenaming && renameRef.current) {
       renameCommittedRef.current = false
-      setRenameValue('')
+      setRenameValue(info.title)
       renameRef.current.focus()
+      renameRef.current.select()
     }
   }, [isRenaming])
 
@@ -164,20 +193,30 @@ export const SessionItem = memo(function SessionItem({
       <div
         data-testid="SessionItem"
         data-id={info.sessionId}
-        onClick={onClick}
-        onDoubleClick={onDoubleClick}
+        data-dot-state={dotState}
+        data-shine={dotState === 'attention' && hasSummary && !isRunning && runningSubagents === 0}
+        onClick={selecting ? onToggleSelected : onClick}
+        onDoubleClick={selecting ? undefined : onDoubleClick}
         onContextMenu={menu.open}
-        draggable={draggable}
+        draggable={selecting ? false : draggable}
         onDragStart={onDragStart}
         onDragOver={onDragOver}
         onDragEnd={onDragEnd}
         onDrop={onDrop}
         data-depth={depth}
-        style={{ padding: '0 5px', ...(depth > 0 ? { paddingLeft: 5 + depth * 14 } : {}) }}
+        data-thread-color={threadAccent(hue)}
+        style={{
+          padding: '0 5px',
+          ...(depth > 0 ? { paddingLeft: 5 + depth * 14 } : {}),
+          ...(rowColors as React.CSSProperties)
+        }}
         className={`
-          group relative flex items-center gap-2.5 h-8 rounded-md text-[13px] cursor-default transition-colors
+          group relative flex items-center gap-2.5 h-8 rounded-md text-[13px] cursor-default transition
           ${active ? 'text-text-primary bg-bg-tertiary' : 'text-text-secondary hover:text-text-primary hover:bg-bg-hover'}
           ${hidden ? 'opacity-45 italic' : ''}
+          hover:brightness-110
+          ${active ? 'z-10 scale-[1.03] shadow-[0_4px_14px_rgba(0,0,0,0.5)]' : ''}
+          ${selecting && selected ? 'bg-bg-hover text-text-primary' : ''}
           ${isWorktree ? 'isolate' : ''}
         `}
       >
@@ -195,14 +234,21 @@ export const SessionItem = memo(function SessionItem({
             }}
           />
         )}
-        <span className="shrink-0 w-[14px] h-[14px] flex items-center justify-center">
-          <StatusDot
-            state={dotState}
-            runningSubagents={runningSubagents}
-            testid="SessionItem.statusDot"
-            className={onRemove ? 'group-hover:hidden' : ''}
+        {selecting && (
+          <input
+            type="checkbox"
+            data-testid="SessionItem.checkbox"
+            aria-label={`Select ${info.title}`}
+            checked={selected}
+            onChange={() => onToggleSelected?.()}
+            // The row toggles on a click; the box must not toggle it a second time.
+            onClick={(e) => e.stopPropagation()}
+            onDoubleClick={(e) => e.stopPropagation()}
+            className="shrink-0 w-[14px] h-[14px] cursor-pointer accent-[color:var(--thread-color,#fb923c)]"
           />
-          {onRemove && (
+        )}
+        {onRemove && (
+          <span className="shrink-0 w-[14px] h-[14px] flex items-center justify-center">
             <span
               data-testid="SessionItem.remove"
               onClick={(e) => {
@@ -225,8 +271,8 @@ export const SessionItem = memo(function SessionItem({
                 <path d="M6 6l12 12" />
               </svg>
             </span>
-          )}
-        </span>
+          </span>
+        )}
         {isRenaming ? (
           <input
             data-testid="SessionItem.renameInput"
@@ -239,11 +285,12 @@ export const SessionItem = memo(function SessionItem({
                 if (!renameCommittedRef.current) onCancelRename?.()
               }, 0)
             }}
-            placeholder="Enter to auto-generate"
+            placeholder="Session name"
             className="flex-1 min-w-0 bg-transparent border-b border-accent text-[13px] text-text-primary outline-none placeholder:text-text-muted/50"
           />
         ) : (
           <span
+            data-testid="SessionItem.title"
             className="overflow-hidden whitespace-nowrap flex-1 min-w-0 flex items-center gap-1"
             style={{
               WebkitMaskImage:
@@ -252,11 +299,6 @@ export const SessionItem = memo(function SessionItem({
             }}
             title={originHint ? `${info.title} (${originHint})` : info.title}
           >
-            <EngineLogo
-              engineId={info.engineId ?? 'claude'}
-              size={10}
-              className="shrink-0 opacity-80"
-            />
             {info.title}
             {originHint && (
               <span
@@ -268,6 +310,22 @@ export const SessionItem = memo(function SessionItem({
               </span>
             )}
           </span>
+        )}
+        {pr.state !== 'none' && <BranchPrIcon state={pr.state} url={pr.url} />}
+        {(dotState === 'running' || dotState === 'subagents') && (
+          <svg
+            data-testid="SessionItem.gear"
+            aria-label="Working"
+            role="img"
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="#000"
+            className="session-gear absolute right-[7px] top-1/2 -mt-2 pointer-events-none"
+          >
+            <title>Working</title>
+            <path d="M19.4 13a7.6 7.6 0 000-2l2.1-1.6a.5.5 0 00.1-.6l-2-3.5a.5.5 0 00-.6-.2l-2.5 1a7.3 7.3 0 00-1.7-1l-.4-2.6a.5.5 0 00-.5-.4h-4a.5.5 0 00-.5.4l-.4 2.6a7.3 7.3 0 00-1.7 1l-2.5-1a.5.5 0 00-.6.2l-2 3.5a.5.5 0 00.1.6L4.6 11a7.6 7.6 0 000 2l-2.1 1.6a.5.5 0 00-.1.6l2 3.5c.1.2.4.3.6.2l2.5-1c.5.4 1.1.7 1.7 1l.4 2.6c0 .2.2.4.5.4h4c.3 0 .5-.2.5-.4l.4-2.6c.6-.3 1.2-.6 1.7-1l2.5 1c.2.1.5 0 .6-.2l2-3.5a.5.5 0 00-.1-.6L19.4 13zM12 15.5a3.5 3.5 0 110-7 3.5 3.5 0 010 7z" />
+          </svg>
         )}
         {memberCount > 0 && onToggleMembers && (
           <button
@@ -338,6 +396,34 @@ export const SessionItem = memo(function SessionItem({
                 </svg>
               </span>
             )}
+            {canArchive && (
+              <span
+                data-testid="SessionItem.archive"
+                // Archiving is frequent, so a single click does nothing: it takes a double-click.
+                onClick={(e) => e.stopPropagation()}
+                onDoubleClick={(e) => {
+                  e.stopPropagation()
+                  onHide?.()
+                }}
+                className="shrink-0 text-text-primary opacity-90 hover:opacity-100 transition-opacity cursor-pointer"
+                title="Double-click to archive (hide) this session"
+              >
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <rect x="2" y="3" width="20" height="5" rx="1" />
+                  <path d="M4 8v11a2 2 0 002 2h12a2 2 0 002-2V8" />
+                  <path d="M10 12h4" />
+                </svg>
+              </span>
+            )}
             {onPin && (
               <span
                 data-testid="SessionItem.pin"
@@ -385,33 +471,6 @@ export const SessionItem = memo(function SessionItem({
                 >
                   <path d="M12 17v5" />
                   <path d="M5 17h14v-1.76a2 2 0 00-1.11-1.79l-1.78-.9A2 2 0 0115 10.76V6h1a2 2 0 000-4H8a2 2 0 000 4h1v4.76a2 2 0 01-1.11 1.79l-1.78.9A2 2 0 005 15.24z" />
-                </svg>
-              </span>
-            )}
-            {onToggleWatch && !isSdkActive && info.engineId !== 'codex' && (
-              <span
-                data-testid="SessionItem.toggleWatch"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onToggleWatch()
-                }}
-                className={`shrink-0 transition-opacity cursor-pointer opacity-90 hover:opacity-100 ${
-                  isWatching ? 'text-blue-400' : 'text-text-primary'
-                }`}
-                title={isWatching ? 'Stop watching' : 'Watch session'}
-              >
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                  <circle cx="12" cy="12" r="3" />
                 </svg>
               </span>
             )}

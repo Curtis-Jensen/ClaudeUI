@@ -7,6 +7,7 @@ import {
   type MockupSecuritySettings
 } from '../../core/services/mockup-settings'
 import { isPathInside } from '../../core/services/path-containment'
+import { isViewHost, serveViewFile } from './file-view'
 
 export { MOCKUP_ASSET_SCHEME }
 
@@ -240,7 +241,17 @@ export function registerMockupAssetScheme(): void {
  */
 export function registerMockupAssetHandler(): void {
   protocol.handle(MOCKUP_ASSET_SCHEME, async (request) => {
-    const decision = routeAndValidate(new URL(request.url))
+    const url = new URL(request.url)
+    // `<id>.v` hosts are single files shown by the Files viewer (file-view.ts),
+    // not mockups: same CSP, but no directory access.
+    if (isViewHost(url.hostname)) {
+      const served = await serveViewFile(url, buildMockupCsp(getMockupSecuritySettings()))
+      return new Response(served.body as BodyInit, {
+        status: served.status,
+        headers: served.headers
+      })
+    }
+    const decision = routeAndValidate(url)
     const served = await serveMockup(decision, `${MOCKUP_ASSET_SCHEME}:`)
     // Buffer is a Uint8Array at runtime (valid BodyInit); the cast just
     // satisfies the DOM lib's narrower BodyInit type.

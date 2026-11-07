@@ -1,7 +1,8 @@
 import { simpleGit, type SimpleGit } from 'simple-git'
 import * as fs from 'fs'
 import * as path from 'path'
-import type { GitStatusData, GitBranchData, GitFileStatus } from '../../shared/types'
+import { execFile } from 'node:child_process'
+import type { GitStatusData, GitBranchData, GitFileStatus, BranchPrInfo } from '../../shared/types'
 import { logger } from './logger'
 import { isPathInside } from './path-containment'
 
@@ -352,6 +353,66 @@ export class GitService {
       ...(lineCountsTruncated ? { lineCountsTruncated: true } : {}),
       ...(filesTruncated ? { filesTruncated: true } : {})
     }
+  }
+
+  /**
+   * The checked-out branch, or `null` when there is no branch worth a pull-request
+   * symbol: not a repo, a detached HEAD, or the repo's default branch.
+   */
+  private async currentFeatureBranch(): Promise<string | null> {
+    try {
+      const branch = (await this.git.revparse(['--abbrev-ref', 'HEAD'])).trim()
+      if (!branch || branch === 'HEAD') return null
+      let base = 'main'
+      try {
+        base = (await this.git.raw(['symbolic-ref', '--short', 'refs/remotes/origin/HEAD']))
+          .trim()
+          .replace(/^origin\//, '')
+      } catch {
+        // no origin/HEAD: fall back to the common default names
+      }
+      return branch === base || branch === 'main' || branch === 'master' ? null : branch
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * The current branch's pull request, read with `gh pr view`. Every failure
+   * (no `gh`, not signed in, no PR, detached HEAD, offline, timeout) is
+   * `none`: the sidebar shows no symbol rather than an error.
+   */
+  async getPrState(): Promise<BranchPrInfo> {
+    await this.ensureRepoRoot()
+    const none: BranchPrInfo = { state: 'none', url: null }
+    const branch = await this.currentFeatureBranch()
+    if (branch === null) return none
+    return new Promise((resolve) => {
+      execFile(
+        'gh',
+        ['pr', 'view', '--json', 'state,isDraft,url,headRefName'],
+        { cwd: this.cwd, timeout: 10_000, env: { ...process.env, GH_PROMPT_DISABLED: '1' } },
+        (err, stdout) => {
+          if (err) return resolve(none)
+          try {
+            const pr = JSON.parse(stdout) as {
+              state?: string
+              isDraft?: boolean
+              url?: string
+              headRefName?: string
+            }
+            if (pr.headRefName !== branch) return resolve(none)
+            const url = typeof pr.url === 'string' ? pr.url : null
+            if (pr.state === 'MERGED') return resolve({ state: 'merged', url })
+            if (pr.state === 'CLOSED') return resolve({ state: 'closed', url })
+            if (pr.state === 'OPEN') return resolve({ state: pr.isDraft ? 'draft' : 'open', url })
+          } catch {
+            // fall through to none
+          }
+          resolve(none)
+        }
+      )
+    })
   }
 
   async getBranches(): Promise<GitBranchData> {

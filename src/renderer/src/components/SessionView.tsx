@@ -8,6 +8,7 @@ import { GitPanel } from './git/GitPanel'
 import { MobileGitView } from './git/MobileGitView'
 import { PlanReviewPanel } from './plan/PlanReviewPanel'
 import { MockupPanel } from './MockupPanel'
+import { FilesPanel } from './FilesPanel'
 import { UsageView } from './usage/UsageView'
 import { AutomationView } from './automation/AutomationView'
 import { PluginWebView } from './plugin/PluginWebView'
@@ -15,6 +16,7 @@ import { TerminalPanel } from './terminal/TerminalPanel'
 import { toggleTerminalPanel, isTerminalToggleShortcut } from './terminal/toggle-terminal'
 import { useActiveSession, useSessionStore, applyTheme } from '../stores/session-store'
 import { useGitWatcher } from '../hooks/useGitWatcher'
+import { useThreadTheme } from '../lib/use-thread-theme'
 import { useAutomationEvents } from '../hooks/useAutomationEvents'
 import { useTerminalColdCleanup } from '../hooks/useTerminalColdCleanup'
 import { useIsMobile, useVisualViewportHeight } from '../hooks/useIsMobile'
@@ -169,10 +171,15 @@ export function SessionView(): React.JSX.Element {
   const activeView = useSessionStore((s) => s.activeView)
   const setActiveView = useSessionStore((s) => s.setActiveView)
   const rightPanel = useActiveSession((s) => s.rightPanel)
+  // Each thread has its own color: the face, the window border and the background tint.
+  const colorSessionId = useSessionStore((s) => s.activeSessionId)
+  const colorTheme = useSessionStore((s) => s.settings.theme)
+  useThreadTheme(colorSessionId, colorTheme)
   const sidebar = useResizablePanel('sidebarWidth', 240, 180, 480)
   const taskPanel = useResizablePanel('taskPanelWidth', 400, 280, 700)
   const gitPanel = useResizablePanel('gitPanelWidth', 450, 320, 9999)
   const planPanel = useResizablePanel('planPanelWidth', 500, 350, 900)
+  const filesPanel = useResizablePanel('filesPanelWidth', 340, 260, 600)
   const mockupPanel = useResizablePanel('mockupPanelWidth', 500, 350, 9999)
   const terminalPanelOpen = useSessionStore((s) => s.terminalPanelOpen)
   const bottomPanel = useResizableBottomPanel('terminalPanelHeight', 120, 600)
@@ -340,7 +347,7 @@ export function SessionView(): React.JSX.Element {
           ...(uiFontScale !== 1 ? { zoom: uiFontScale, width: `calc(100vw / ${uiFontScale})` } : {})
         }}
         // eslint-disable-next-line no-restricted-syntax -- the zoomed root: h-screen only applies at scale 1; otherwise the inline height divides by uiFontScale
-        className={`${visualHeight ? '' : 'h-screen'} flex ${import.meta.env.DEV ? 'border-2 border-orange-400 rounded-2xl overflow-hidden' : ''}`}
+        className={`${visualHeight ? '' : 'h-screen'} flex ${import.meta.env.DEV ? 'border-2 border-[color:var(--thread-color,#fb923c)] rounded-2xl overflow-hidden' : ''}`}
       >
         {/* Mobile sidebar drawer */}
         {isMobile && !sidebarCollapsed && (
@@ -356,12 +363,12 @@ export function SessionView(): React.JSX.Element {
           </>
         )}
         <div
-          className={`flex-1 min-w-0 flex flex-col ${window.api.platform === 'darwin' ? 'bg-bg-secondary/60' : 'bg-bg-secondary/80'}`}
+          className={`app-texture flex-1 min-w-0 flex flex-col ${window.api.platform === 'darwin' ? 'bg-bg-secondary/60' : 'bg-bg-secondary/80'}`}
         >
           {/* Main content row: chat + optional right panels */}
           <div className="flex-1 min-w-0 min-h-0 flex">
             <div
-              className={`flex-1 min-w-0 h-full flex flex-col bg-bg-primary overflow-hidden ${sidebarCollapsed || isMobile ? '' : 'rounded-l-2xl shadow-[-1px_0_4px_rgba(0,0,0,0.15),-3px_0_12px_rgba(0,0,0,0.1)]'}`}
+              className={`app-texture flex-1 min-w-0 h-full flex flex-col bg-bg-primary overflow-hidden ${sidebarCollapsed || isMobile ? '' : 'rounded-l-2xl shadow-[-1px_0_4px_rgba(0,0,0,0.15),-3px_0_12px_rgba(0,0,0,0.1)]'}`}
             >
               {isMobile && rightPanel === 'task' ? (
                 <MobileTaskView />
@@ -396,6 +403,12 @@ export function SessionView(): React.JSX.Element {
               <>
                 <ResizeHandle onPointerDown={planPanel.onPointerDown(-1)} />
                 <PlanReviewPanel style={{ width: planPanel.width }} />
+              </>
+            )}
+            {!isMobile && rightPanel === 'files' && (
+              <>
+                <ResizeHandle onPointerDown={filesPanel.onPointerDown(-1)} />
+                <FilesPanel style={{ width: filesPanel.width }} />
               </>
             )}
             {!isMobile && rightPanel === 'mockup' && (

@@ -41,7 +41,6 @@ function props(overrides: Partial<InputBoxViewProps>): InputBoxViewProps {
     displayValue: '',
     isDisabled: false,
     isRunning: false,
-    isVoiceActive: false,
     placeholder: 'Type a message…',
     textClassName: '',
     permissionMode: 'default',
@@ -74,6 +73,7 @@ function props(overrides: Partial<InputBoxViewProps>): InputBoxViewProps {
     onKeyDown: vi.fn(),
     onKeyUp: vi.fn(),
     onPaste: vi.fn(),
+    onDropFiles: vi.fn(),
     onFileChange: vi.fn(),
     onRemoveFile: vi.fn(),
     onSlashSelect: vi.fn(),
@@ -83,6 +83,7 @@ function props(overrides: Partial<InputBoxViewProps>): InputBoxViewProps {
     onSelectEffort: vi.fn(),
     onSelectThinking: vi.fn(),
     onOpenSandboxSettings: vi.fn(),
+    onVoiceToggle: vi.fn(),
     onVoiceStart: vi.fn(),
     onVoiceStop: vi.fn(),
     ...overrides

@@ -31,7 +31,7 @@ export function AutomationView({ onClose }: AutomationViewProps): React.JSX.Elem
             <circle cx="12" cy="12" r="10" />
             <polyline points="12 6 12 12 16 14" />
           </svg>
-          <span className="text-sm font-semibold text-text-primary">Automations</span>
+          <span className="text-sm font-semibold text-text-primary">Scheduled</span>
         </div>
         <button
           data-testid="AutomationView.close"

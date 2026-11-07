@@ -12,6 +12,7 @@
  * captured up front and restored in afterEach.
  */
 
+import { SPEECH_RAIL_GUTTER_PX } from '../../SpeechRail'
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react'
 import {
@@ -869,7 +870,8 @@ describe('ChatPanel — message height estimates', () => {
   })
 
   it('measures the column from a rendered wrapper, in 50px buckets', async () => {
-    wrapperWidth = 424
+    // A wrapper is as wide as the column plus the strip for the speech bar.
+    wrapperWidth = 424 + SPEECH_RAIL_GUTTER_PX
     const { unmount } = await renderChatPanel()
     const content = wrappers()[0].parentElement as HTMLElement
     // Mounting reads no layout: until the browser reports the content laid out,
@@ -882,12 +884,12 @@ describe('ChatPanel — message height estimates', () => {
     expect(estimates()[1]).toBeGreaterThan(expectedHeight(MESSAGES[1], 700))
 
     // A resize inside the bucket changes nothing.
-    wrapperWidth = 410
+    wrapperWidth = 410 + SPEECH_RAIL_GUTTER_PX
     act(() => fireResize(content))
     expect(estimates()[1]).toBe(expectedHeight(MESSAGES[1], 400))
 
     // Crossing into the next one re-estimates narrower -> taller text.
-    wrapperWidth = 340
+    wrapperWidth = 340 + SPEECH_RAIL_GUTTER_PX
     act(() => fireResize(content))
     expect(estimates()[1]).toBe(expectedHeight(MESSAGES[1], 350))
     unmount()

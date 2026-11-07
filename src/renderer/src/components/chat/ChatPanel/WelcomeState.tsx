@@ -1,7 +1,10 @@
 import { useState, useMemo, useCallback, useEffect } from 'react'
-import { v4 as uuid } from 'uuid'
+import { takeUpcomingChatId } from '../../../lib/thread-look'
 import { useActiveSession, useSessionStore } from '../../../stores/session-store'
+import { useAppMode } from '../../../lib/profile'
 import { DirectoryBrowserDialog } from '../../shared/DirectoryBrowserDialog'
+import { useProjectNames } from '../../../lib/project-names'
+import { UsagePaceCard } from './UsagePaceCard'
 
 const WELCOME_PHRASES = [
   "Let's build",
@@ -74,12 +77,14 @@ function sanitizeWorktreeName(val: string): string {
 }
 
 export function WelcomeState(): React.JSX.Element {
+  const projectNames = useProjectNames()
   const cwd = useActiveSession((s) => s.cwd)
   const directories = useSessionStore((s) => s.directories)
   const createNewSession = useSessionStore((s) => s.createNewSession)
   const setWorktreeInfo = useSessionStore((s) => s.setWorktreeInfo)
   const activeSessionId = useSessionStore((s) => s.activeSessionId)
   const welcomeBrowseToken = useSessionStore((s) => s.welcomeBrowseToken)
+  const codeMode = useAppMode((s) => s.mode) === 'code'
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [browseDialogOpen, setBrowseDialogOpen] = useState(false)
   const [worktreeEnabled, setWorktreeEnabled] = useState(false)
@@ -94,7 +99,7 @@ export function WelcomeState(): React.JSX.Element {
 
   const startSession = useCallback(
     async (dirCwd: string): Promise<void> => {
-      const routingId = uuid()
+      const routingId = takeUpcomingChatId()
       if (worktreeEnabled && worktreeName.trim()) {
         setIsCreatingWorktree(true)
         try {
@@ -150,7 +155,7 @@ export function WelcomeState(): React.JSX.Element {
   return (
     <div
       data-testid="WelcomeState"
-      className="flex flex-col items-center gap-4 -mt-16 animate-fade-in"
+      className="flex flex-col items-center gap-4 -mt-16 w-full px-8 animate-fade-in"
     >
       {/* Icon */}
       <div
@@ -192,14 +197,14 @@ export function WelcomeState(): React.JSX.Element {
       )}
 
       {/* Directory dropdown */}
-      {!cwd && !isCreatingWorktree && (
+      {(!cwd || codeMode) && !isCreatingWorktree && (
         <div className="relative">
           <button
             data-testid="WelcomeState.selectDirectory"
             onClick={() => (dropdownOpen ? closeDropdown() : setDropdownOpen(true))}
             className="flex items-center gap-1 text-[14px] text-accent hover:text-accent/80 transition-colors cursor-default"
           >
-            <span>Select a project directory</span>
+            <span>{cwd ? cwd.split(/[\\/]/).pop() || cwd : 'Select a project directory'}</span>
             <svg
               width="12"
               height="12"
@@ -240,7 +245,9 @@ export function WelcomeState(): React.JSX.Element {
                       <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
                     </svg>
                     <div className="flex flex-col min-w-0">
-                      <span className="truncate">{group.folderName}</span>
+                      <span className="truncate">
+                        {projectNames[group.projectKey || group.cwd] ?? group.folderName}
+                      </span>
                       <span className="text-[11px] text-text-muted truncate">{group.cwd}</span>
                     </div>
                   </button>
@@ -327,10 +334,7 @@ export function WelcomeState(): React.JSX.Element {
         </div>
       )}
 
-      {/* Current directory */}
-      {cwd && (
-        <span className="text-[15px] text-text-muted">{cwd.split(/[\\/]/).pop() || cwd}</span>
-      )}
+      <UsagePaceCard />
 
       {/* Host browser (web only — desktop never opens it, see handleBrowse).
           Portalled, so it renders here purely for co-location with its state. */}

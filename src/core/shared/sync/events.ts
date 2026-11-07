@@ -330,6 +330,8 @@ export interface SyncEventMap {
   // Volatile lane (phase 5 separates these out)
   // -------------------------------------------------------------------------
   'session:bash-output': (routingId: string, data: BashOutputData) => void
+  /** What the person is likely to say next, written by cli.js after a turn. */
+  'session:prompt-suggestion': (routingId: string, suggestion: string) => void
   'session:background-output': (routingId: string, data: BackgroundOutput) => void
 
   // -------------------------------------------------------------------------

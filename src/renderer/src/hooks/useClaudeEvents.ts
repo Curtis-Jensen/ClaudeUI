@@ -34,6 +34,7 @@ import {
   markSyncReady
 } from '../../../core/shared/sync/client-registry'
 import { useSessionStore } from '../stores/session-store'
+import { usePromptSuggestions } from '../lib/prompt-suggestions'
 import { onReplicaApplied, seedWatchedSession, getReplicaState } from '../stores/replica'
 import { loadResumedTranscript } from '../lib/session-history-load'
 import { startBackgroundLoad } from '../lib/subagent-prefetch'
@@ -321,6 +322,9 @@ export function useClaudeEvents(): void {
       }),
       onSyncEvent('session:sandbox-violation', (routingId, message) => {
         useSessionStore.getState().addSandboxViolation(routingId, message)
+      }),
+      onSyncEvent('session:prompt-suggestion', (routingId, suggestion) => {
+        usePromptSuggestions.getState().set(routingId, suggestion)
       }),
       onSyncEvent('session:bash-output', (routingId, data) => {
         useSessionStore

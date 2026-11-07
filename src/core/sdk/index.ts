@@ -20,6 +20,7 @@ export type {
   ResultMessage,
   ToolProgressMessage,
   RateLimitEventMessage,
+  PromptSuggestionMessage,
   BashOutputMessage,
   AuthStatusMessage,
   CommandLifecycleMessage,

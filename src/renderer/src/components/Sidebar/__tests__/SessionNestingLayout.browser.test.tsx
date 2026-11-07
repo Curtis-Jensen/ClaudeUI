@@ -140,11 +140,11 @@ describe('grouped sidebar rows, on the phone drawer', () => {
         expect(rectOf(row).height).toBeGreaterThanOrEqual(32 * scale - 1)
       }
       // One level of indent: every member starts further right than the head, and all alike.
-      const dotLeft = (id: string): number =>
-        rectOf(byTestId(rowOf(root, id), 'SessionItem.statusDot')).left
-      for (const id of ['c', 'g', 'd', 'e']) expect(dotLeft(id)).toBeGreaterThan(dotLeft('p'))
-      for (const id of ['g', 'd', 'e']) expect(dotLeft(id)).toBeCloseTo(dotLeft('c'), 0)
-      expect(dotLeft('x')).toBeCloseTo(dotLeft('p'), 0)
+      const titleLeft = (id: string): number =>
+        rectOf(byTestId(rowOf(root, id), 'SessionItem.title')).left
+      for (const id of ['c', 'g', 'd', 'e']) expect(titleLeft(id)).toBeGreaterThan(titleLeft('p'))
+      for (const id of ['g', 'd', 'e']) expect(titleLeft(id)).toBeCloseTo(titleLeft('c'), 0)
+      expect(titleLeft('x')).toBeCloseTo(titleLeft('p'), 0)
       // Each member says where it continued from; the hint trails a long title, so it is
       // clipped by the title's own box, which stays inside the row.
       for (const id of ['c', 'g', 'd', 'e']) {
@@ -174,10 +174,10 @@ describe('grouped sidebar rows, on the desktop sidebar', () => {
     const root = await mountDrawer(1)
     const depths = ['p', 'c', 'g', 'd', 'e'].map((id) => rowOf(root, id).dataset.depth)
     expect(depths).toEqual(['0', '1', '1', '1', '1'])
-    const dotLeft = (id: string): number =>
-      rectOf(byTestId(rowOf(root, id), 'SessionItem.statusDot')).left
-    for (const id of ['g', 'd', 'e']) expect(dotLeft(id)).toBeCloseTo(dotLeft('c'), 0)
-    expect(dotLeft('c')).toBeGreaterThan(dotLeft('p'))
+    const titleLeft = (id: string): number =>
+      rectOf(byTestId(rowOf(root, id), 'SessionItem.title')).left
+    for (const id of ['g', 'd', 'e']) expect(titleLeft(id)).toBeCloseTo(titleLeft('c'), 0)
+    expect(titleLeft('c')).toBeGreaterThan(titleLeft('p'))
     const toggle = byTestId(rowOf(root, 'p'), 'SessionItem.toggleMembers')
     expect(isInside(toggle, rowOf(root, 'p'))).toBe(true)
     for (const id of ['p', 'c', 'e']) expect(hasNoHorizontalOverflow(rowOf(root, id))).toBe(true)

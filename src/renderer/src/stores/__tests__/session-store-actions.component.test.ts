@@ -858,6 +858,57 @@ describe('unhideSession', () => {
   })
 })
 
+describe('hideSessions / unhideSessions (bulk)', () => {
+  const saves = (): number => (window.api.saveSessionConfig as any).mock.calls.length
+
+  it('hides many chats with a single save', () => {
+    const before = saves()
+    store().hideSessions(['a', 'b', 'c'])
+    expect(store().hiddenSessionIds).toEqual(['a', 'b', 'c'])
+    expect(saves() - before).toBe(1)
+  })
+
+  it('persists the whole hidden set', () => {
+    store().hideSession('old')
+    store().hideSessions(['a', 'b'])
+    const last = (window.api.saveSessionConfig as any).mock.calls.at(-1)![0]
+    expect(last.hiddenSessions).toEqual(['old', 'a', 'b'])
+  })
+
+  it('skips repeats and chats that are already hidden', () => {
+    store().hideSession('a')
+    store().hideSessions(['a', 'b', 'b'])
+    expect(store().hiddenSessionIds).toEqual(['a', 'b'])
+  })
+
+  it('does nothing, and saves nothing, when there is nothing new to hide', () => {
+    store().hideSession('a')
+    const before = saves()
+    const hidden = store().hiddenSessionIds
+    store().hideSessions(['a'])
+    store().hideSessions([])
+    expect(store().hiddenSessionIds).toBe(hidden)
+    expect(saves()).toBe(before)
+  })
+
+  it('unhides many with a single save and leaves the rest hidden', () => {
+    store().hideSessions(['a', 'b', 'c', 'd'])
+    const before = saves()
+    store().unhideSessions(['b', 'd', 'ghost'])
+    expect(store().hiddenSessionIds).toEqual(['a', 'c'])
+    expect(saves() - before).toBe(1)
+  })
+
+  it('unhiding chats that are not hidden does nothing', () => {
+    store().hideSession('a')
+    const before = saves()
+    const hidden = store().hiddenSessionIds
+    store().unhideSessions(['ghost'])
+    expect(store().hiddenSessionIds).toBe(hidden)
+    expect(saves()).toBe(before)
+  })
+})
+
 describe('hideProject / unhideProject', () => {
   it('adds and removes projectKey', () => {
     store().hideProject('proj-a')

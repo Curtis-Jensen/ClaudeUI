@@ -63,7 +63,9 @@ function stubApi(platform: string): void {
     }),
     listPlaces: vi.fn(async () => ({ home: 'D:/work', hostname: 'host-pc', drives: ['D:/'] })),
     createWorktree: vi.fn(),
-    logError: vi.fn()
+    logError: vi.fn(),
+    getUsagePace: vi.fn(async () => ({ weekRows: [] })),
+    checkUsagePace: vi.fn(async () => ({ weekRows: [] }))
   }
 }
 

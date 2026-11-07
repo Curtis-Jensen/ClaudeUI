@@ -18,7 +18,10 @@ export const PinnedSessionList = memo(function PinnedSessionList({
   hiddenSessionIds,
   onHideSession,
   onUnhideSession,
-  onDeleteSession
+  onDeleteSession,
+  selecting = false,
+  selectedIds,
+  onToggleSelected
 }: {
   pinnedSessions: SessionInfo[]
   activeSessionId: string | null
@@ -36,6 +39,9 @@ export const PinnedSessionList = memo(function PinnedSessionList({
   onHideSession?: (info: SessionInfo) => void
   onUnhideSession?: (info: SessionInfo) => void
   onDeleteSession?: (info: SessionInfo) => void
+  selecting?: boolean
+  selectedIds?: ReadonlySet<string>
+  onToggleSelected?: (sessionId: string) => void
 }): React.JSX.Element {
   const dragItemRef = useRef<number | null>(null)
   const dragOverRef = useRef<number | null>(null)
@@ -89,6 +95,9 @@ export const PinnedSessionList = memo(function PinnedSessionList({
             key={info.sessionId}
             info={info}
             active={info.sessionId === activeSessionId}
+            selecting={selecting}
+            selected={!!selectedIds?.has(info.sessionId)}
+            onToggleSelected={() => onToggleSelected?.(info.sessionId)}
             onClick={() => onClickSession(info)}
             onToggleWatch={info.projectKey ? () => onToggleWatch(info) : undefined}
             onUnpin={() => onUnpin(info.sessionId)}

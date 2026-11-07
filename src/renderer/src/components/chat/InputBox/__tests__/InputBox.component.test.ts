@@ -26,6 +26,7 @@ import { resetFactoryCounter } from '@test/factories/messages'
 import type { InputBoxViewProps } from '../View'
 import type { ModelInfo, QueuedItem } from '../../../../../../shared/types'
 import { InputBox } from '../InputBox'
+import { SUGGESTION_HINT, usePromptSuggestions } from '../../../../lib/prompt-suggestions'
 import {
   resetVoiceNoticesForTests,
   showVoiceNotice,
@@ -1387,7 +1388,6 @@ describe('InputBox FC — rendered', () => {
       expect(viewProps.selectedModel.value).toBe(oldValue)
       expect(viewProps.selectedModel.shortName).toBe(oldValue)
       expect(viewProps.models.map((model) => model.value)).toEqual([nextValue])
-      expect(viewProps.visionEnabled).toBe(false)
       expect(viewProps.effortSupported).toBe(true)
       expect(viewProps.allowedEffortLevels).toEqual(['low', 'high'])
       expect(viewProps.showThinkingPicker).toBe(engine === 'claude')
@@ -1401,8 +1401,6 @@ describe('InputBox FC — rendered', () => {
       expect(ipcCalls['session:set-model']).toEqual([[FC_ROUTE, nextValue]])
       expect(useSessionStore.getState().sessions[FC_ROUTE].selectedModel).toBe(nextValue)
       if (engine !== 'claude') expect(viewProps.selectedModel.value).toBe(oldValue)
-      // Vision follows the backend acknowledgement, not the catalog/default edit.
-      expect(viewProps.visionEnabled).toBe(false)
       await act(async () => {
         const status = useSessionStore.getState().sessions[FC_ROUTE].status
         seed.status(FC_ROUTE, {
@@ -1412,7 +1410,6 @@ describe('InputBox FC — rendered', () => {
         })
       })
       expect(viewProps.selectedModel.value).toBe(nextValue)
-      expect(viewProps.visionEnabled).toBe(true)
       expect(viewProps.effortSupported).toBe(false)
     }
   )
@@ -1469,7 +1466,6 @@ describe('InputBox FC — rendered', () => {
       })
       expect(viewProps.selectedModel.value).toBe('local/old-model')
       expect(viewProps.selectedModel.shortName).toBe('local/old-model')
-      expect(viewProps.visionEnabled).toBe(false)
       expect(viewProps.effortSupported).toBe(false)
       expect(ipcCalls['session:set-model']).toBeUndefined()
     }
@@ -1625,6 +1621,115 @@ describe('InputBox FC — rendered', () => {
     expect(viewProps.selectedModel.engineId).toBe('opencode')
   })
 
+  // Claude Code guesses what you will say next; it shows as ghost text and Tab takes it.
+  describe('suggested next prompt', () => {
+    const SUGGESTION = 'run the tests again'
+    const tab = (): React.KeyboardEvent =>
+      ({
+        key: 'Tab',
+        shiftKey: false,
+        ctrlKey: false,
+        altKey: false,
+        metaKey: false,
+        repeat: false,
+        preventDefault: vi.fn()
+      }) as unknown as React.KeyboardEvent
+    const setStatus = (state: 'idle' | 'running'): void => {
+      useSessionStore.setState((s) => ({
+        sessions: {
+          ...s.sessions,
+          [FC_ROUTE]: {
+            ...s.sessions[FC_ROUTE],
+            sdkActive: true,
+            status: { ...s.sessions[FC_ROUTE].status, state }
+          }
+        }
+      }))
+      mirrorStoreIntoReplica()
+    }
+    const suggest = (text: string | null): void =>
+      usePromptSuggestions.setState({ bySession: text ? { [FC_ROUTE]: text } : {} })
+
+    beforeEach(() => {
+      suggest(null)
+      setStatus('idle')
+    })
+    afterEach(() => suggest(null))
+
+    it('shows it in the empty box, with the Tab hint', () => {
+      suggest(SUGGESTION)
+      renderFC()
+      expect(viewProps.placeholder).toBe(`${SUGGESTION}${SUGGESTION_HINT}`)
+    })
+
+    it('shows the ordinary prompt when there is no suggestion', () => {
+      renderFC()
+      expect(viewProps.placeholder).not.toContain(SUGGESTION_HINT)
+    })
+
+    it('does not show it over something you have typed', () => {
+      suggest(SUGGESTION)
+      useSessionStore.getState().setDraftText('half a thought')
+      renderFC()
+      expect(viewProps.placeholder).not.toContain(SUGGESTION)
+    })
+
+    it('does not show it while a turn is running', () => {
+      suggest(SUGGESTION)
+      setStatus('running')
+      renderFC()
+      expect(viewProps.placeholder).not.toContain(SUGGESTION)
+    })
+
+    it('Tab puts it in the box and uses it up', async () => {
+      suggest(SUGGESTION)
+      renderFC()
+      const press = tab()
+
+      await act(async () => {
+        viewProps.onKeyDown(press)
+      })
+
+      expect(press.preventDefault).toHaveBeenCalled()
+      expect(viewProps.text).toBe(SUGGESTION)
+      expect(usePromptSuggestions.getState().bySession[FC_ROUTE]).toBeUndefined()
+    })
+
+    it('Tab does not take it once you have typed', async () => {
+      suggest(SUGGESTION)
+      useSessionStore.getState().setDraftText('mine')
+      renderFC()
+
+      await act(async () => {
+        viewProps.onKeyDown(tab())
+      })
+
+      expect(viewProps.text).toBe('mine')
+    })
+
+    it('typing retires it', async () => {
+      suggest(SUGGESTION)
+      renderFC()
+
+      await act(async () => {
+        viewProps.onInput({
+          target: { value: 'x', style: {}, scrollHeight: 20, selectionStart: 1 }
+        } as unknown as React.ChangeEvent<HTMLTextAreaElement>)
+      })
+
+      expect(usePromptSuggestions.getState().bySession[FC_ROUTE]).toBeUndefined()
+    })
+
+    it('the next turn starting retires it', async () => {
+      suggest(SUGGESTION)
+      renderFC()
+      await act(async () => {
+        setStatus('running')
+      })
+      expect(usePromptSuggestions.getState().bySession[FC_ROUTE]).toBeUndefined()
+    })
+  })
+
   // S2 item 6 made every voice failure visible; S3a moved them off the session's
   // error stack. A start/stop the renderer saw fail, a microphone fault and the
   // live silence warning all land in the mic's notice pill — never `addError`.
@@ -1662,6 +1767,156 @@ describe('InputBox FC — rendered', () => {
       })
       expect(viewProps.voiceNotice).toMatchObject({ text: notice()!.text })
       expect(errors()).toEqual([])
+    })
+
+    describe('Enter while recording', () => {
+      const enter = (): React.KeyboardEvent =>
+        ({
+          key: 'Enter',
+          shiftKey: false,
+          repeat: false,
+          preventDefault: vi.fn()
+        }) as unknown as React.KeyboardEvent
+      const setVoiceState = (voiceState: 'idle' | 'recording'): void => {
+        useSessionStore.setState((state) => ({
+          sessions: {
+            ...state.sessions,
+            [FC_ROUTE]: { ...state.sessions[FC_ROUTE], sdkActive: true, voiceState }
+          }
+        }))
+        mirrorStoreIntoReplica()
+      }
+
+      it('ends the recording and does not send; the words stay in the box', async () => {
+        const stops: unknown[] = []
+        app.bridge.ipcMain.handle('voice:stop-recording', () => {
+          stops.push(1)
+          return { ok: true }
+        })
+        setVoiceState('recording')
+        useSessionStore.getState().setDraftText('hello world')
+        renderFC()
+
+        await act(async () => {
+          viewProps.onKeyDown(enter())
+        })
+
+        expect(stops).toHaveLength(1)
+        expect(ipcCalls['session:send'] ?? []).toHaveLength(0)
+        expect(viewProps.text).toBe('hello world')
+      })
+
+      const pressEnterOn = async (target: HTMLElement): Promise<KeyboardEvent> => {
+        const event = new KeyboardEvent('keydown', {
+          key: 'Enter',
+          bubbles: true,
+          cancelable: true
+        })
+        await act(async () => {
+          target.dispatchEvent(event)
+        })
+        return event
+      }
+      const stopCalls = (): unknown[] => {
+        const stops: unknown[] = []
+        app.bridge.ipcMain.handle('voice:stop-recording', () => {
+          stops.push(1)
+          return { ok: true }
+        })
+        return stops
+      }
+
+      it('ends the recording from anywhere in the window, not only from the text box', async () => {
+        const stops = stopCalls()
+        setVoiceState('recording')
+        useSessionStore.getState().setDraftText('hello world')
+        renderFC()
+
+        // Focus is on the page body, as after a click on a message.
+        await pressEnterOn(document.body)
+
+        expect(stops).toHaveLength(1)
+        expect(ipcCalls['session:send'] ?? []).toHaveLength(0)
+      })
+
+      it('sends from anywhere when nothing is recording', async () => {
+        setVoiceState('idle')
+        useSessionStore.getState().setDraftText('hello world')
+        renderFC()
+
+        await pressEnterOn(document.body)
+
+        expect(ipcCalls['session:send']).toHaveLength(1)
+        expect(ipcCalls['session:send'][0][1]).toBe('hello world')
+      })
+
+      it('on the bot or another marked button, Enter sends and the button is not pressed', async () => {
+        setVoiceState('idle')
+        useSessionStore.getState().setDraftText('hello world')
+        renderFC()
+        const bot = document.createElement('button')
+        bot.setAttribute('data-enter-sends', '')
+        document.body.appendChild(bot)
+
+        const event = await pressEnterOn(bot)
+        bot.remove()
+
+        // preventDefault is what stops a focused button from being pressed by Enter.
+        expect(event.defaultPrevented).toBe(true)
+        expect(ipcCalls['session:send']).toHaveLength(1)
+      })
+
+      it('on a marked button while recording, Enter ends the recording', async () => {
+        const stops = stopCalls()
+        setVoiceState('recording')
+        renderFC()
+        const mic = document.createElement('button')
+        mic.setAttribute('data-enter-sends', '')
+        document.body.appendChild(mic)
+
+        await pressEnterOn(mic)
+        mic.remove()
+
+        expect(stops).toHaveLength(1)
+      })
+
+      it('leaves Enter alone in another text field, on other buttons and behind a dialog', async () => {
+        const stops = stopCalls()
+        setVoiceState('recording')
+        useSessionStore.getState().setDraftText('hello world')
+        renderFC()
+
+        const field = document.createElement('input')
+        const approve = document.createElement('button')
+        document.body.append(field, approve)
+        const inField = await pressEnterOn(field)
+        const onOtherButton = await pressEnterOn(approve)
+        field.remove()
+        approve.remove()
+
+        const dialog = document.createElement('div')
+        dialog.setAttribute('role', 'dialog')
+        document.body.appendChild(dialog)
+        const behindDialog = await pressEnterOn(document.body)
+        dialog.remove()
+
+        expect(stops).toHaveLength(0)
+        expect(ipcCalls['session:send'] ?? []).toHaveLength(0)
+        expect([inField, onOtherButton, behindDialog].some((e) => e.defaultPrevented)).toBe(false)
+      })
+
+      it('sends as usual when nothing is recording', async () => {
+        setVoiceState('idle')
+        useSessionStore.getState().setDraftText('hello world')
+        renderFC()
+
+        await act(async () => {
+          viewProps.onKeyDown(enter())
+        })
+
+        expect(ipcCalls['session:send']).toHaveLength(1)
+        expect(ipcCalls['session:send'][0][1]).toBe('hello world')
+      })
     })
 
     it('a failed stop is a warn notice too', async () => {

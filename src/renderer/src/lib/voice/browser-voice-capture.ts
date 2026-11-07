@@ -387,7 +387,17 @@ export class BrowserVoiceCapture {
           return
         }
       }
-      await this.context.audioWorklet.addModule(VOICE_WORKLET_URL)
+      try {
+        await this.context.audioWorklet.addModule(VOICE_WORKLET_URL)
+      } catch (error) {
+        // Letting go of the button while the mic is still starting closes the context,
+        // and the pending module load then rejects: that is a cancelled start, not a failure.
+        if (this.state !== 'starting') {
+          await this.release()
+          return
+        }
+        throw error
+      }
       if (this.state !== 'starting') {
         await this.release()
         return

@@ -130,6 +130,8 @@ import { generateAgent } from '../opencode/agent-generate'
 import { listAgentTypesChecked } from '../services/agent-type-catalog'
 import { ENGINE_META } from '../../shared/engine-meta'
 import { refreshPrices } from '../services/opencode-pricing'
+import { readUsagePace, recordUsagePace } from '../services/usage-pace'
+import { usageFetcher } from '../services/usage-fetcher'
 import { socks5Connect } from '../services/socks-bridge'
 import { assertSafeIdSegment } from '../services/path-containment'
 import { setProviderModelAllowlist } from '../services/provider-model-allowlist'
@@ -979,6 +981,19 @@ export function configCommands(
       capability: 'config',
       kind: 'command',
       handler: safeHandler(async () => refreshPrices())
+    },
+    // Weekly pace log shared with the Claude desktop app's "Usage pace check".
+    {
+      channel: 'usage-pace:get',
+      capability: 'config',
+      kind: 'query',
+      handler: safeHandler(async () => readUsagePace())
+    },
+    {
+      channel: 'usage-pace:check',
+      capability: 'config',
+      kind: 'command',
+      handler: safeHandler(async () => recordUsagePace(await usageFetcher.fetch()))
     }
   ]
 }

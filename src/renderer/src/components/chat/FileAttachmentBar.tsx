@@ -18,9 +18,9 @@ export function FileAttachmentBar({
           key={file.id}
           data-testid="FileAttachmentBar.item"
           data-id={file.id}
-          className={`relative shrink-0 rounded-lg overflow-hidden border border-border group/file ${file.fileType === 'pdf' ? 'flex items-center gap-1.5 px-2.5 h-10 bg-bg-hover' : 'w-16 h-16'}`}
+          className={`relative shrink-0 rounded-lg overflow-hidden border border-border group/file ${file.fileType !== 'image' ? 'flex items-center gap-1.5 px-2.5 h-10 bg-bg-hover' : 'w-16 h-16'}`}
         >
-          {file.fileType === 'pdf' ? (
+          {file.fileType !== 'image' ? (
             <>
               <svg
                 width="14"
@@ -29,7 +29,7 @@ export function FileAttachmentBar({
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="1.5"
-                className="text-red-400 shrink-0"
+                className={`${file.fileType === 'pdf' ? 'text-red-400' : 'text-text-muted'} shrink-0`}
               >
                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
                 <polyline points="14 2 14 8 20 8" />

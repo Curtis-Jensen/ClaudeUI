@@ -22,6 +22,9 @@ import { ProposalCard } from './ProposalCard'
 import { ReviewResultCard } from './ReviewResultCard'
 import { TaskCard } from './TaskCard'
 import { hasDispatchBehindCall, isQueuedDispatchCall } from './task-state'
+import { stripMoodTag } from '../../../../shared/mood'
+import { SpeakButton } from './SpeakButton'
+import { SpeechRail } from './SpeechRail'
 import { hostedMcpKind } from '../../../../shared/tool-kinds'
 import type { EngineToolMap } from '../../../../shared/tool-kinds'
 import { engineToolMap } from './tool-registry/engine-tool-maps'
@@ -178,6 +181,8 @@ interface MessageBubbleProps {
   message: ChatMessage
   pendingApprovals: PendingApproval[]
   isLastAssistant: boolean
+  /** A user message whose edit can fork from the reply before it (see editForkAnchor). */
+  canEdit?: boolean
   /**
    * The message's currently-streaming thinking slots, each with the item's own
    * start clock when the engine measured one (`ActiveItemStream.startedAt`).
@@ -190,11 +195,13 @@ export const MessageBubble = memo(function MessageBubble({
   message,
   pendingApprovals,
   isLastAssistant,
+  canEdit = false,
   activeThinking = EMPTY_ACTIVE_THINKING
 }: MessageBubbleProps): React.JSX.Element {
   // Hooks must run unconditionally — declared before the role-based early returns.
   const activeSessionId = useSessionStore((s) => s.activeSessionId)
   const forkFromMessage = useSessionStore((s) => s.forkFromMessage)
+  const editFromMessage = useSessionStore((s) => s.editFromMessage)
   const forkCapability = useActiveSession((s) => s.status.capabilities.forkFromMessage)
   const engineId = useActiveSession((s) => s.status.engineId)
   // Only a dispatch call behind another tool call of its own message can read "queued"
@@ -203,6 +210,7 @@ export const MessageBubble = memo(function MessageBubble({
   const mayBeQueued = engineId === 'claude' && hasDispatchBehindCall(message.content)
   const turnRunning = useActiveSession((s) => mayBeQueued && s.status.state === 'running')
   const [forking, setForking] = useState(false)
+  const [editing, setEditing] = useState(false)
   // No-op + `enabled: false` when no ImageGalleryProvider is mounted above, so
   // an unwrapped MessageBubble still renders its thumbnails (just inert).
   const { openAttachment, enabled: galleryEnabled } = useImageGallery()
@@ -214,6 +222,16 @@ export const MessageBubble = memo(function MessageBubble({
       await forkFromMessage(activeSessionId, message.id)
     } finally {
       setForking(false)
+    }
+  }
+
+  const handleEdit = async (): Promise<void> => {
+    if (!activeSessionId || editing) return
+    setEditing(true)
+    try {
+      await editFromMessage(activeSessionId, message.id)
+    } finally {
+      setEditing(false)
     }
   }
 
@@ -316,7 +334,7 @@ export const MessageBubble = memo(function MessageBubble({
       <div
         data-testid="MessageBubble"
         data-id={message.id}
-        className="flex justify-end animate-fade-in"
+        className="group/msg flex flex-col items-end gap-1 animate-fade-in"
       >
         <div
           className="max-w-[85%] bg-bg-tertiary rounded-2xl px-4 py-2.5 text-[13px] text-text-primary leading-[1.6]"
@@ -384,6 +402,22 @@ export const MessageBubble = memo(function MessageBubble({
             </span>
           ))}
         </div>
+        {/* Edit: hidden until hover. Opens a branch from the reply before this message,
+            with the text back in the composer to change and send. Only offered where
+            editForkAnchor finds that reply (see ChatPanel). */}
+        {activeSessionId && forkCapability && canEdit && (
+          <div className="opacity-0 group-hover/msg:opacity-100 focus-within:opacity-100 transition-opacity">
+            <button
+              data-testid="MessageBubble.edit"
+              onClick={handleEdit}
+              disabled={editing}
+              title="Edit in a new branch from the reply before this message"
+              className="flex items-center gap-1 text-[10px] text-text-muted hover:text-text-primary transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-default"
+            >
+              <span>Edit</span>
+            </button>
+          </div>
+        )}
       </div>
     )
   }
@@ -474,6 +508,8 @@ export const MessageBubble = memo(function MessageBubble({
     }
   }
 
+  const speakText = message.content.flatMap((b) => (b.type === 'text' ? [b.text] : [])).join('\n')
+
   // cli.js (Claude Code only) runs a first-party MCP call such as `dispatch_agent` only when
   // nothing else of its assistant message is executing, so one behind an unanswered call has
   // not started: the card says "queued", not "running" (task-state.ts).
@@ -486,65 +522,75 @@ export const MessageBubble = memo(function MessageBubble({
       data-id={message.id}
       className="group/msg flex flex-col gap-2 animate-fade-in"
     >
-      {items.map((item, gi) => {
-        if (item.kind === 'thinking') {
-          const active = activeThinking.find((slot) => slot.index === item.index)
+      {/* The speech bar runs down this block only: the message's text and tool cards,
+          not the Listen and branch buttons below them. */}
+      <div className="relative flex flex-col gap-2">
+        <SpeechRail messageId={message.id} />
+        {items.map((item, gi) => {
+          if (item.kind === 'thinking') {
+            const active = activeThinking.find((slot) => slot.index === item.index)
+            return (
+              <ThinkingBlock
+                key={item.index}
+                text={item.block.text || ''}
+                isActive={!!active}
+                // The item's own clock when the engine measured one; the message
+                // timestamp is only right for a thought that opened the message.
+                startedAt={active ? (active.startedAt ?? message.timestamp) : undefined}
+                durationMs={item.block.durationMs}
+              />
+            )
+          }
+          if (item.kind === 'other') {
+            return <ContentBlockView key={item.index} block={item.block} />
+          }
+          // Single tool call — render directly
+          if (item.blocks.length === 1) {
+            const { block, index } = item.blocks[0]
+            const result = resultMap.get(block.toolUseId)
+            const approval = approvalMap.get(block.toolUseId)
+            const decision = decisionMap.get(block.toolUseId)
+            return renderToolBlock(
+              toolMap,
+              block,
+              result,
+              approval,
+              index,
+              decision,
+              isLastAssistant,
+              isQueuedCall(block)
+            )
+          }
+          // Multiple tool calls — wrap in bordered group
           return (
-            <ThinkingBlock
-              key={item.index}
-              text={item.block.text || ''}
-              isActive={!!active}
-              // The item's own clock when the engine measured one; the message
-              // timestamp is only right for a thought that opened the message.
-              startedAt={active ? (active.startedAt ?? message.timestamp) : undefined}
-              durationMs={item.block.durationMs}
-            />
+            <div
+              key={`group-${gi}`}
+              className="rounded-xl border border-border p-2 flex flex-col gap-2"
+            >
+              {item.blocks.map(({ block, index }) => {
+                const result = block.toolUseId ? resultMap.get(block.toolUseId) : undefined
+                const approval = block.toolUseId ? approvalMap.get(block.toolUseId) : undefined
+                const decision = block.toolUseId ? decisionMap.get(block.toolUseId) : undefined
+                return renderToolBlock(
+                  toolMap,
+                  block,
+                  result,
+                  approval,
+                  index,
+                  decision,
+                  isLastAssistant,
+                  isQueuedCall(block)
+                )
+              })}
+            </div>
           )
-        }
-        if (item.kind === 'other') {
-          return <ContentBlockView key={item.index} block={item.block} />
-        }
-        // Single tool call — render directly
-        if (item.blocks.length === 1) {
-          const { block, index } = item.blocks[0]
-          const result = resultMap.get(block.toolUseId)
-          const approval = approvalMap.get(block.toolUseId)
-          const decision = decisionMap.get(block.toolUseId)
-          return renderToolBlock(
-            toolMap,
-            block,
-            result,
-            approval,
-            index,
-            decision,
-            isLastAssistant,
-            isQueuedCall(block)
-          )
-        }
-        // Multiple tool calls — wrap in bordered group
-        return (
-          <div
-            key={`group-${gi}`}
-            className="rounded-xl border border-border p-2 flex flex-col gap-2"
-          >
-            {item.blocks.map(({ block, index }) => {
-              const result = block.toolUseId ? resultMap.get(block.toolUseId) : undefined
-              const approval = block.toolUseId ? approvalMap.get(block.toolUseId) : undefined
-              const decision = block.toolUseId ? decisionMap.get(block.toolUseId) : undefined
-              return renderToolBlock(
-                toolMap,
-                block,
-                result,
-                approval,
-                index,
-                decision,
-                isLastAssistant,
-                isQueuedCall(block)
-              )
-            })}
-          </div>
-        )
-      })}
+        })}
+      </div>
+      {/* Listen: plays this message in the local voice. Held back while the newest
+          message is still being written, since its text is not final yet. */}
+      {speakText && !(isLastAssistant && turnRunning) && (
+        <SpeakButton messageId={message.id} text={speakText} />
+      )}
       {/* Branch off: hidden until the message is hovered. Spins a new session
           seeded with everything up to and including this assistant turn.
           Gated on capabilities.forkFromMessage so engines that don't support
@@ -589,12 +635,16 @@ const ContentBlockView = memo(function ContentBlockView({
   block: ContentBlock
 }): React.JSX.Element | null {
   if (block.type === 'text' && block.text) {
+    // The model ends a reply with a hidden mood tag for the corner face.
+    const shown = stripMoodTag(block.text)
+    if (!shown) return null
     return (
       <div
         className="text-[13px] text-text-primary leading-[1.6]"
-        data-markdown-source={block.text}
+        data-markdown-source={shown}
+        data-speech-text
       >
-        <MarkdownRenderer content={block.text} />
+        <MarkdownRenderer content={shown} />
       </div>
     )
   }

@@ -1,5 +1,5 @@
 /**
- * The sidebar dot must keep showing work after the main turn ends: cli.js
+ * The sidebar row's state must keep showing work after the main turn ends: cli.js
  * 2.1.219+ runs agents in the background, so `status.state` goes idle at the
  * launch ack while `activeTasks` still holds the running agent.
  */
@@ -35,54 +35,46 @@ afterEach(() => {
   useSessionStore.setState(initial, true)
 })
 
-describe('SessionItem status dot', () => {
-  it('ripples violet while a background subagent runs after the turn ended', () => {
+describe('SessionItem state', () => {
+  it('shows background work while a background subagent runs after the turn ended', () => {
     seedIdleLive({ 'tu-1': task('local_agent') })
     render(<SessionItem info={info} active={false} onClick={() => {}} />)
 
-    const dot = screen.getByTestId('SessionItem.statusDot')
-    expect(dot.getAttribute('data-state')).toBe('subagents')
-    expect(dot.getAttribute('data-subagents')).toBe('1')
-    expect(dot.getAttribute('title')).toBe('1 background task running')
-    expect(dot.classList.contains('status-dot--ripple')).toBe(true)
+    const dot = screen.getByTestId('SessionItem')
+    expect(dot.getAttribute('data-dot-state')).toBe('subagents')
   })
 
-  it('a background shell that wakes the agent ripples violet', () => {
+  it('a background shell that wakes the agent shows background work', () => {
     seedIdleLive({ 'tu-1': { ...task('local_bash'), wakesParent: true } })
     render(<SessionItem info={info} active={false} onClick={() => {}} />)
 
-    const dot = screen.getByTestId('SessionItem.statusDot')
-    expect(dot.getAttribute('data-state')).toBe('subagents')
-    expect(dot.classList.contains('status-dot--ripple')).toBe(true)
+    const dot = screen.getByTestId('SessionItem')
+    expect(dot.getAttribute('data-dot-state')).toBe('subagents')
   })
 
   it('a task that does not wake the agent leaves the session idle', () => {
     seedIdleLive({ 'tu-1': { ...task('dream'), wakesParent: false } })
     render(<SessionItem info={info} active={false} onClick={() => {}} />)
 
-    const dot = screen.getByTestId('SessionItem.statusDot')
-    expect(dot.getAttribute('data-state')).toBe('idle')
-    expect(dot.getAttribute('title')).toBe('Idle')
-    expect(dot.classList.contains('status-dot--ripple')).toBe(false)
+    const dot = screen.getByTestId('SessionItem')
+    expect(dot.getAttribute('data-dot-state')).toBe('idle')
   })
 
   it('a shell record from before wakesParent existed stays idle (legacy type set)', () => {
     seedIdleLive({ 'tu-1': task('local_bash') })
     render(<SessionItem info={info} active={false} onClick={() => {}} />)
 
-    expect(screen.getByTestId('SessionItem.statusDot').getAttribute('data-state')).toBe('idle')
+    expect(screen.getByTestId('SessionItem').getAttribute('data-dot-state')).toBe('idle')
   })
 
   // ADR-105 §5: the dispatcher re-raises a running X-Agent's record on a parent whose
   // engine is gone (disconnected, or reopened from history); the work is real.
-  it('a disconnected parent with an X-Agent still working ripples violet', () => {
+  it('a disconnected parent with an X-Agent still working shows background work', () => {
     seedIdleLive({ 'tu-1': { ...task('dispatch'), wakesParent: true } }, false)
     render(<SessionItem info={info} active={false} onClick={() => {}} />)
 
-    const dot = screen.getByTestId('SessionItem.statusDot')
-    expect(dot.getAttribute('data-state')).toBe('subagents')
-    expect(dot.getAttribute('data-subagents')).toBe('1')
-    expect(dot.classList.contains('status-dot--ripple')).toBe(true)
+    const dot = screen.getByTestId('SessionItem')
+    expect(dot.getAttribute('data-dot-state')).toBe('subagents')
   })
 
   it('stale native records of a dead engine leave the row grey', () => {
@@ -95,8 +87,7 @@ describe('SessionItem status dot', () => {
     )
     render(<SessionItem info={info} active={false} onClick={() => {}} />)
 
-    const dot = screen.getByTestId('SessionItem.statusDot')
-    expect(dot.getAttribute('data-state')).toBe('inactive')
-    expect(dot.getAttribute('data-subagents')).toBe('0')
+    const dot = screen.getByTestId('SessionItem')
+    expect(dot.getAttribute('data-dot-state')).toBe('inactive')
   })
 })

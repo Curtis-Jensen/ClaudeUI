@@ -108,6 +108,20 @@ import {
 } from './replica'
 
 /** Normalize cwd for use as a terminal group key (strip trailing slash). */
+/** The reply an edit of the user message at `index` forks from: the turn right before
+ *  it. Null when there is no such reply (an unanswered or first message), when the
+ *  message is not a plain typed one, or when it carries attachments, which an edit
+ *  does not carry over. */
+export function editForkAnchor(messages: ChatMessage[], index: number): ChatMessage | null {
+  const msg = messages[index]
+  const prev = messages[index - 1]
+  if (msg?.role !== 'user' || msg.planContent || msg.hostInstruction) return null
+  if (prev?.role !== 'assistant') return null
+  if (msg.content.some((b) => b.type === 'image' || b.type === 'document')) return null
+  if (!msg.content.some((b) => b.type === 'text' && b.text.trim())) return null
+  return prev
+}
+
 export function normalizeCwd(cwd: string): string {
   if (cwd.length > 1 && cwd.endsWith('/')) return cwd.slice(0, -1)
   return cwd || '.'
@@ -1205,7 +1219,7 @@ export interface PerSessionState {
    */
   activeTasks: Record<string, ActiveTask>
   openedTaskToolUseIds: string[]
-  rightPanel: 'none' | 'task' | 'git' | 'plan' | 'mockup'
+  rightPanel: 'none' | 'task' | 'git' | 'plan' | 'mockup' | 'files'
   subagentMessages: Record<string, ChatMessage[]>
   bashOutputs: Record<string, { output: string; totalLines: number; totalBytes: number }>
   backgroundOutputs: Record<string, { tail: string; totalSize: number }>
@@ -2142,6 +2156,10 @@ export interface SessionState {
    *  switches to it. The branch materializes on cli.js on first prompt send.
    *  Returns the new routingId, or null if the anchor could not be resolved. */
   forkFromMessage: (sourceRoutingId: string, messageId: string) => Promise<string | null>
+  /** Edit a sent user message: forks from the reply before it (see editForkAnchor) and
+   *  prefills the branch's composer with the message's text, unsent, for the user to
+   *  change and send. Returns the new routingId, or null if the edit could not start. */
+  editFromMessage: (sourceRoutingId: string, messageId: string) => Promise<string | null>
   markSdkActive: (routingId: string) => void
   markSdkInactive: (routingId: string) => void
   addRecentSession: (routingId: string) => void
@@ -2152,6 +2170,9 @@ export interface SessionState {
   reorderPinnedSessions: (ids: string[]) => void
   hideSession: (sessionId: string) => void
   unhideSession: (sessionId: string) => void
+  /** Hide many sessions at once: one save, however many. */
+  hideSessions: (sessionIds: readonly string[]) => void
+  unhideSessions: (sessionIds: readonly string[]) => void
   hideProject: (projectKey: string) => void
   unhideProject: (projectKey: string) => void
   deleteSession: (sessionId: string, projectKey: string, engineId?: EngineId) => Promise<void>
@@ -2278,6 +2299,8 @@ export interface SessionState {
   selectNextGitFile: (routingId: string) => void
   openGitPanel: (routingId: string) => void
   closeGitPanel: (routingId: string) => void
+  openFilesPanel: (routingId: string) => void
+  closeFilesPanel: (routingId: string) => void
   // Account usage
   setAccountUsage: (data: AccountUsage) => void
   /**
@@ -3005,6 +3028,25 @@ export const useSessionStore = create<SessionState>((set) => ({
     return newRoutingId
   },
 
+  editFromMessage: async (sourceRoutingId, messageId) => {
+    const src = useSessionStore.getState().sessions[sourceRoutingId]
+    if (!src) return null
+    const index = src.messages.findIndex((m) => m.id === messageId)
+    const anchor = editForkAnchor(src.messages, index)
+    if (!anchor) return null
+    const text = src.messages[index].content
+      .flatMap((b) => (b.type === 'text' ? [b.text] : []))
+      .join('\n\n')
+    const newRoutingId = await useSessionStore
+      .getState()
+      .forkFromMessage(sourceRoutingId, anchor.id)
+    if (!newRoutingId) return null
+    set((state) => ({
+      sessions: updateSession(state.sessions, newRoutingId, () => ({ draftText: text }))
+    }))
+    return newRoutingId
+  },
+
   markSdkActive: (routingId) => {
     // `sdkActive` is SEALED (`session:created` sets it, `session:status`
     // disconnected clears it). The UI still flips it optimistically on the paths
@@ -3100,6 +3142,25 @@ export const useSessionStore = create<SessionState>((set) => ({
     const state = useSessionStore.getState()
     if (!state.hiddenSessionIds.includes(sessionId)) return
     const hiddenSessions = state.hiddenSessionIds.filter((id) => id !== sessionId)
+    patchLocalApp({ hiddenSessions })
+    saveSessionConfig(state, { hiddenSessionIds: hiddenSessions })
+  },
+
+  hideSessions: (sessionIds) => {
+    const state = useSessionStore.getState()
+    const already = new Set(state.hiddenSessionIds)
+    const added = [...new Set(sessionIds)].filter((id) => !already.has(id))
+    if (added.length === 0) return
+    const hiddenSessions = [...state.hiddenSessionIds, ...added]
+    patchLocalApp({ hiddenSessions })
+    saveSessionConfig(state, { hiddenSessionIds: hiddenSessions })
+  },
+
+  unhideSessions: (sessionIds) => {
+    const state = useSessionStore.getState()
+    const going = new Set(sessionIds)
+    const hiddenSessions = state.hiddenSessionIds.filter((id) => !going.has(id))
+    if (hiddenSessions.length === state.hiddenSessionIds.length) return
     patchLocalApp({ hiddenSessions })
     saveSessionConfig(state, { hiddenSessionIds: hiddenSessions })
   },
@@ -4056,6 +4117,20 @@ export const useSessionStore = create<SessionState>((set) => ({
     })),
 
   closeGitPanel: (routingId) =>
+    set((state) => ({
+      sessions: updateSession(state.sessions, routingId, () => ({
+        rightPanel: 'none' as const
+      }))
+    })),
+
+  openFilesPanel: (routingId) =>
+    set((state) => ({
+      sessions: updateSession(state.sessions, routingId, () => ({
+        rightPanel: 'files' as const
+      }))
+    })),
+
+  closeFilesPanel: (routingId) =>
     set((state) => ({
       sessions: updateSession(state.sessions, routingId, () => ({
         rightPanel: 'none' as const

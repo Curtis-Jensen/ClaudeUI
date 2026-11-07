@@ -43,6 +43,7 @@ export function AutomationList({ className }: AutomationListProps): React.JSX.El
     }
     window.api.saveAutomation(newAutomation)
     selectAutomation(newAutomation.id)
+    useAutomationStore.getState().setEditing(true)
   }, [selectAutomation])
 
   return (

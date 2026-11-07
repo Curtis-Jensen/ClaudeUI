@@ -133,9 +133,11 @@ export function sendPrompt(
   manager: SessionManager,
   routingId: string,
   prompt: string,
-  attachments?: AttachmentUpload[],
+  uploads?: AttachmentUpload[],
   options: SendPromptOptions = {}
 ): void | Promise<void> {
+  const { prompt: promptWithFiles, attachments } = saveOtherFiles(routingId, prompt, uploads)
+  prompt = promptWithFiles
   const session = manager.get(routingId)
   if (!session) throw new Error(`No session for routingId: ${routingId}`)
   const seeding = syncCore.pendingSeed(routingId) ?? reseedAfterExit(session, routingId)
@@ -148,6 +150,49 @@ export function sendPrompt(
   return Promise.all(waits).then(() =>
     deliverPrompt(manager, routingId, prompt, attachments, options)
   )
+}
+
+/** Media types the engines take inline; every other upload goes to disk. */
+const INLINE_MEDIA_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+  'application/pdf'
+])
+
+/**
+ * Any file can be attached, but the engines only take images and PDFs inline. The rest
+ * are written under the temp dir and the prompt gets their paths, so the model reads
+ * them with its own file tools.
+ */
+function saveOtherFiles(
+  routingId: string,
+  prompt: string,
+  uploads?: AttachmentUpload[]
+): { prompt: string; attachments?: AttachmentUpload[] } {
+  if (!uploads?.some((u) => !INLINE_MEDIA_TYPES.has(u.mediaType))) {
+    return { prompt, attachments: uploads }
+  }
+  const dir = path.join(os.tmpdir(), 'claudeui-attachments', routingId, crypto.randomUUID())
+  fs.mkdirSync(dir, { recursive: true })
+  const inline: AttachmentUpload[] = []
+  const saved: string[] = []
+  for (const upload of uploads) {
+    if (INLINE_MEDIA_TYPES.has(upload.mediaType)) {
+      inline.push(upload)
+      continue
+    }
+    const name = path.basename(upload.fileName || 'file') || 'file'
+    const target = path.join(dir, name)
+    fs.writeFileSync(target, Buffer.from(upload.base64Data, 'base64'))
+    saved.push(target)
+  }
+  const note = `Attached files (saved on disk):\n${saved.map((p) => `- ${p}`).join('\n')}`
+  return {
+    prompt: prompt ? `${prompt}\n\n${note}` : note,
+    attachments: inline.length > 0 ? inline : undefined
+  }
 }
 
 /**

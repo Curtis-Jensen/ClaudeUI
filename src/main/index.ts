@@ -13,7 +13,7 @@ import {
 import { codexHostRegistry } from '../core/codex/CodexHost'
 import { join } from 'path'
 import { pathToFileURL } from 'url'
-import { execFileSync } from 'child_process'
+import { execFile, execFileSync } from 'child_process'
 import contextMenu from 'electron-context-menu'
 import { copyMarkdown } from './copy-markdown'
 
@@ -60,6 +60,9 @@ import { localVoiceServer, setVoiceWorkerLauncher } from '../core/voice/local-vo
 import { desktopVoiceWorkerLauncher } from './voice-worker-launcher'
 import { PluginManager } from './services/plugin-manager'
 import { LogViewer } from './services/log-viewer'
+import { readArchivedSessionIds } from './services/desktop-archive'
+import { profileInfo, setActiveProfile } from '../core/services/profile'
+import { isProfileId } from '../shared/profile'
 import { logger } from '../core/services/logger'
 import { getCliVersion } from '../core/services/claude-session'
 import { registerMockupAssetScheme, registerMockupAssetHandler } from './services/mockup-protocol'
@@ -83,6 +86,7 @@ import {
   type AppOrigin
 } from '../core/shell-security'
 import { readImagePreview } from '../core/sent-file-security'
+import { registerViewFile } from './services/file-view'
 import { setHostAppVersion, setHostPaths } from '../core/host'
 import { setSqliteDriver } from '../core/services/sqlite-driver'
 import { verifierHooksEnabled, VERIFIER_HOOKS_SWITCH } from '../shared/verifier-hooks'
@@ -497,7 +501,8 @@ function createWindow(): void {
     'app:open-in-vscode',
     'shell:open-path',
     'shell:show-in-folder',
-    'file:sent-file-preview'
+    'file:sent-file-preview',
+    'file:view-url'
   ]) {
     ipcMain.removeHandler(ch)
   }
@@ -533,6 +538,17 @@ function createWindow(): void {
       logger.warn('main', `Refused shell:open-path (${check.error}): ${JSON.stringify(filePath)}`)
       return { error: check.error }
     }
+    // Local owner preference: HTML opens in Firefox, not the OS default browser.
+    // The path is already validated absolute; execFile passes it as one argv
+    // entry (no shell), and "--" keeps a leading "-" from reading as a flag.
+    if (process.platform === 'darwin' && /\.html?$/i.test(check.path)) {
+      const fxError = await new Promise<string>((resolve) => {
+        execFile('open', ['-a', 'Firefox', '--', check.path], (err) =>
+          resolve(err ? err.message : '')
+        )
+      })
+      if (!fxError) return {}
+    }
     // openPath resolves with '' on success and an error STRING on failure.
     const error = await shell.openPath(check.path)
     return error ? { error } : {}
@@ -565,6 +581,18 @@ function createWindow(): void {
       )
     }
     return result
+  })
+
+  // In-app viewer for a file from the Files panel: validates the (model-
+  // controlled) path and returns the mockup-asset:// URL that serves exactly
+  // that file under the mockup CSP. Desktop-only, like the handlers above.
+  ipcMain.handle('file:view-url', (_e, filePath: string) => {
+    const result = registerViewFile(filePath)
+    if (!result.ok) {
+      logger.warn('main', `Refused file:view-url (${result.error}): ${JSON.stringify(filePath)}`)
+      return { error: result.error }
+    }
+    return { url: result.url }
   })
 
   // Send maximize/unmaximize state changes to renderer
@@ -678,6 +706,14 @@ app.whenReady().then(() => {
   // and `app.getVersion()` is reachable from main alone.
   setHostAppVersion(appVersion)
   ipcMain.handle('app:version-info', () => versionInfo())
+  // Which chats the Claude desktop app has archived (read-only; desktop window only, never the web client).
+  ipcMain.handle('desktop-archive:ids', () => readArchivedSessionIds())
+  // Whose profile is active (the owner's or the kid's) and where the kid's sandbox is.
+  ipcMain.handle('profile:get', () => profileInfo())
+  ipcMain.handle('profile:set', (_event, profile: unknown) => {
+    if (!isProfileId(profile)) throw new Error('Unknown profile')
+    return setActiveProfile(profile)
+  })
   // Override the remote `app:version-info` source with the display-form version
   // (the channel itself is registered by core, so this is order-independent), so
   // the web client's Settings dialog reads the same build versions as ours.

@@ -31,6 +31,7 @@ export type SDKMessage =
   | RateLimitEventMessage
   | BashOutputMessage
   | AuthStatusMessage
+  | PromptSuggestionMessage
   | CommandLifecycleMessage
   | ControlRequestMessage
   | ControlResponseMessage
@@ -278,6 +279,16 @@ export interface BashOutputMessage extends BaseSDKMessage {
   output?: string
   total_lines?: number
   total_bytes?: number
+}
+
+/**
+ * cli.js's guess at what the person will say next, sent after a turn when `promptSuggestions` is
+ * on (docs/protocol-cc/03-inbound-messages.md §3.14). A small fast model writes it.
+ */
+export interface PromptSuggestionMessage extends BaseSDKMessage {
+  type: 'prompt_suggestion'
+  suggestion?: string
+  uuid?: string
 }
 
 export interface AuthStatusMessage extends BaseSDKMessage {

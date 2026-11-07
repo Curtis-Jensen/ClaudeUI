@@ -5,7 +5,8 @@ import type {
   ClaudeAPI,
   LoadSessionHistoryOptions,
   PermissionSuggestion,
-  ProxySettings
+  ProxySettings,
+  UsagePaceData
 } from '../shared/types'
 import { buildMockupUrl } from '../shared/mockup-url'
 import { verifierHooksEnabled } from '../shared/verifier-hooks'
@@ -426,6 +427,7 @@ const api: ClaudeAPI = {
   gitCheckRepo: (cwd: string) => unwrap<boolean>('git:check-repo', cwd),
   gitGetStatus: (cwd: string) => unwrap('git:status', cwd),
   gitGetBranches: (cwd: string) => unwrap('git:branches', cwd),
+  gitGetPrState: (cwd: string) => unwrap('git:pr-state', cwd),
   gitCheckout: (cwd: string, branch: string) => unwrap('git:checkout', cwd, branch),
   gitCreateBranch: (cwd: string, name: string) => unwrap('git:create-branch', cwd, name),
   gitGetFilePatch: (cwd: string, filePath: string, staged: boolean, ignoreWhitespace: boolean) =>
@@ -457,6 +459,7 @@ const api: ClaudeAPI = {
   // absolute path is all main needs, and main re-validates it.
   getSentFilePreview: (_sessionKey: string, filePath: string) =>
     ipcRenderer.invoke('file:sent-file-preview', filePath),
+  getFileViewUrl: (filePath: string) => ipcRenderer.invoke('file:view-url', filePath),
   loadSettings: () => ipcRenderer.invoke('config:load-settings'),
   saveSettings: (settings) => ipcRenderer.invoke('config:save-settings', settings),
   loadSessionConfig: () => ipcRenderer.invoke('config:load-sessions'),
@@ -767,6 +770,13 @@ const api: ClaudeAPI = {
   // Version info
   getVersionInfo: () => ipcRenderer.invoke('app:version-info'),
 
+  // The chats the Claude desktop app has archived
+  desktopArchivedIds: () => ipcRenderer.invoke('desktop-archive:ids'),
+
+  // Profiles: the owner's, or the kid's sandboxed one
+  getProfile: () => ipcRenderer.invoke('profile:get'),
+  setProfile: (profile) => ipcRenderer.invoke('profile:set', profile),
+
   // Log viewer
   openLogViewer: () => ipcRenderer.invoke('log-viewer:open'),
 
@@ -779,6 +789,8 @@ const api: ClaudeAPI = {
 
   // Usage pricing refresh (Phase 9b — desktop-only, spawns local opencode server)
   refreshPrices: () => unwrap<{ count: number; refreshedAt: number }>('usage:refresh-prices'),
+  getUsagePace: () => unwrap<UsagePaceData>('usage-pace:get'),
+  checkUsagePace: () => unwrap<UsagePaceData>('usage-pace:check'),
 
   // Mockup preview
   readMockupHtml: (cwd: string, directory: string) => unwrap('mockup:read-html', cwd, directory),

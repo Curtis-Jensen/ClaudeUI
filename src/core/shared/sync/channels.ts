@@ -389,6 +389,13 @@ export const CHANNEL_SPECS: Readonly<Record<string, ChannelSpec>> = {
     canonical: false,
     why: 'Live bash tail. Phase 5 S2 took it off the ring: a noisy command emitted thousands of chunks and every one took a seq. Pass-through (the payload carries counters, not an accumulation) and honest-lossy — the durable record is the tool_result on the event lane.'
   },
+  'session:prompt-suggestion': {
+    cls: 'volatile',
+    volatileFlavor: 'pass-through',
+    ring: false,
+    canonical: false,
+    why: 'A guess at the next prompt, valid only until the person types or the next turn starts. It goes to whoever is watching the session and is never replayed: a stale suggestion is worse than none.'
+  },
   'session:background-output': {
     cls: 'volatile',
     volatileFlavor: 'pass-through',

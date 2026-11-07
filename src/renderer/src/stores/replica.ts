@@ -68,6 +68,7 @@ import {
   type CanonicalSessionState,
   type CanonicalState
 } from '../../../core/shared/sync/state'
+import { useThreadLooks } from '../lib/thread-look'
 import type { FullStateSnapshot } from '../../../shared/remote-protocol'
 import { AUTONOMY_TO_PERMISSION } from '../../../shared/permission-modes'
 import type { PermissionMode, SessionStatus, WorktreeInfo } from '../../../shared/types'
@@ -144,7 +145,10 @@ export function startReplica(): () => void {
       const rekey = pendingRekeyFor(event)
       const removed = removedIdOf(event)
       commit(applyEvent(canonical, event), { rekey, removed })
-      if (rekey) rekeyed.set(rekey.oldId, rekey.newId)
+      if (rekey) {
+        rekeyed.set(rekey.oldId, rekey.newId)
+        useThreadLooks.getState().carry(rekey.oldId, rekey.newId)
+      }
       // The host now owns this id (or has dropped it) — either way it stops being
       // this client's private invention. A rekey carries the marker across, since
       // the pre-rekey id named the same still-private session.

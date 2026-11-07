@@ -25,7 +25,7 @@ export function AutomationListView({
     <div data-testid="AutomationList" className={className}>
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-border/20">
         <span className="text-xs font-semibold text-text-muted uppercase tracking-wider">
-          Automations
+          Scheduled
         </span>
         <button
           data-testid="AutomationList.new"
@@ -50,7 +50,7 @@ export function AutomationListView({
       <div className="py-2">
         {automations.length === 0 && (
           <div className="px-3 py-8 text-center text-text-muted text-xs">
-            No automations yet.
+            No scheduled tasks yet.
             <br />
             Click <b>+ New</b> to create one.
           </div>

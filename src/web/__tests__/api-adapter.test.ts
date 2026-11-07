@@ -806,6 +806,8 @@ const WIRED: ReadonlyArray<{ method: string; channel: string; args: readonly unk
     args: [{ type: 'http', hostname: '127.0.0.1', port: 8080 }]
   },
   { method: 'refreshPrices', channel: 'usage:refresh-prices', args: [] },
+  { method: 'getUsagePace', channel: 'usage-pace:get', args: [] },
+  { method: 'checkUsagePace', channel: 'usage-pace:check', args: [] },
 
   // The OpenRouter tab: safeHandler-wrapped `config` queries, so `unwrap`.
   { method: 'openrouterStatus', channel: 'openrouter:status', args: [] },

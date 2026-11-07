@@ -1,13 +1,17 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { v4 as uuid } from 'uuid'
 import { useSessionStore } from '../../stores/session-store'
+import { useArchivedChats, useArchivedChatsRefresh } from '../../lib/archived-chats'
+import { useAppMode, useProfile, useProfileRefresh } from '../../lib/profile'
+import { expandDir, toggleDirExpanded, useExpandedDirs } from '../../lib/expanded-dirs'
+import { isInsideOrEqual, KID_PROFILE_NAME } from '../../../../shared/profile'
 import type { DirectoryGroup, EngineId, SessionInfo, WorktreeInfo } from '../../../../shared/types'
 import { useAutomationStore } from '../../stores/automation-store'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import type { CodexDeletePlan } from '../../../../shared/codex-types'
 import { SidebarView, type DeleteTarget } from './View'
+import { mostRecentProject } from '../../lib/last-project'
 import { cwdToProjectKey } from '../../../../shared/project-key'
-import { isCreatedWorktree } from '../../../../shared/linked-worktree'
 import { planClaudeProjectDelete } from '../../../../shared/claude-project-delete'
 import {
   beginTranscriptPlaceholder,
@@ -101,9 +105,7 @@ export function Sidebar({
   const uiFontScale = useSessionStore((s) => s.settings.uiFontScale)
   const activeSessionId = useSessionStore((s) => s.activeSessionId)
   const directories = useSessionStore((s) => s.directories)
-  const recentSessionIds = useSessionStore((s) => s.recentSessionIds)
   const pinnedSessionIds = useSessionStore((s) => s.pinnedSessionIds)
-  const maxRecentSessions = useSessionStore((s) => s.settings.maxRecentSessions)
   // Narrow projection: only extract fields the sidebar needs for structure/display.
   // Uses ref-based caching to prevent re-renders from streaming text, message updates, etc.
   const sidebarSessionsRef = useRef<Record<string, SidebarSessionData>>({})
@@ -135,10 +137,10 @@ export function Sidebar({
   const pinSession = useSessionStore((s) => s.pinSession)
   const unpinSession = useSessionStore((s) => s.unpinSession)
   const removeRecentSession = useSessionStore((s) => s.removeRecentSession)
+  const addRecentSession = useSessionStore((s) => s.addRecentSession)
   const setCustomTitle = useSessionStore((s) => s.setCustomTitle)
   const customTitles = useSessionStore((s) => s.customTitles)
   const reorderPinnedSessions = useSessionStore((s) => s.reorderPinnedSessions)
-  const worktreeInfoMap = useSessionStore((s) => s.worktreeInfoMap)
   const hiddenSessionIds = useSessionStore((s) => s.hiddenSessionIds)
   const hiddenProjectKeys = useSessionStore((s) => s.hiddenProjectKeys)
   const hideSession = useSessionStore((s) => s.hideSession)
@@ -152,7 +154,6 @@ export function Sidebar({
   const activeView = useSessionStore((s) => s.activeView)
   const setActiveView = useSessionStore((s) => s.setActiveView)
   const pluginViews = useSessionStore((s) => s.pluginViews)
-  const addRecentSession = useSessionStore((s) => s.addRecentSession)
   const sessionEngines = useSessionStore((s) => s.sessionEngines)
   const automationBadge = useAutomationStore((s) => s.notificationBadge)
 
@@ -161,7 +162,7 @@ export function Sidebar({
   // then fast-loading B must land on B. Each click bumps the token; a load only
   // commits if it's still the latest (gpt#18 / xhigh#14).
   const selectionTarget = useRef<string | null>(null)
-  const [expandedDir, setExpandedDir] = useState<string | null>(null)
+  const expandedDirs = useExpandedDirs()
   const [worktreesModalCwd, setWorktreesModalCwd] = useState<string | null>(null)
   const [cleanupWorktree, setCleanupWorktree] = useState<{
     sessionId: string
@@ -169,6 +170,38 @@ export function Sidebar({
   } | null>(null)
   const [renamingKey, setRenamingKey] = useState<string | null>(null)
   const [showHidden, setShowHidden] = useState(false)
+  // Chats the Claude desktop app archived: listed, or left out (the choice is the menu's toggle).
+  useArchivedChatsRefresh()
+  // Profiles: the kid's sandboxed profile sees only chats in his sandbox folder, and the owner's
+  // profile never lists them, so neither profile's chats clutter the other's sidebar.
+  useProfileRefresh()
+  const profile = useProfile((s) => s.profile)
+  const sandboxDir = useProfile((s) => s.sandboxDir)
+  const switchProfile = useProfile((s) => s.switchTo)
+  // The owner's Chat / Code toggle: Chat lists only conversations in the chat folder, Code lists
+  // every other project. The kid profile has no toggle and keeps its own sandbox.
+  const chatDir = useProfile((s) => s.chatDir)
+  const appMode = useAppMode((s) => s.mode)
+  const setAppMode = useAppMode((s) => s.setMode)
+  const chatMode = profile === 'curtis' && !!chatDir && appMode === 'chat'
+  const inProfile = useCallback(
+    (cwd: string): boolean => {
+      if (!sandboxDir) return profile === 'curtis'
+      if (profile === 'kid') return isInsideOrEqual(sandboxDir, cwd)
+      if (isInsideOrEqual(sandboxDir, cwd)) return false
+      if (!chatDir) return true
+      return isInsideOrEqual(chatDir, cwd) === chatMode
+    },
+    [profile, sandboxDir, chatDir, chatMode]
+  )
+  const archivedIds = useArchivedChats((s) => s.ids)
+  const showArchived = useArchivedChats((s) => s.show)
+  const toggleShowArchived = useArchivedChats((s) => s.toggle)
+  // Bulk select: pick many chats with checkboxes, then hide or unhide them in one go.
+  const hideSessionsAction = useSessionStore((s) => s.hideSessions)
+  const unhideSessionsAction = useSessionStore((s) => s.unhideSessions)
+  const [selecting, setSelecting] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(() => new Set())
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
   const [deletePlan, setDeletePlan] = useState<CodexDeletePlan | null>(null)
   const [historyError, setHistoryError] = useState<string | null>(null)
@@ -242,6 +275,7 @@ export function Sidebar({
       if (conversationText.length > 1000) {
         conversationText = conversationText.slice(-1000)
       }
+      window.api.logError('AutoName', `text ${conversationText.length} chars for ${sessionId}`)
       if (!conversationText) return
       // Show a temporary "generating..." title
       setCustomTitle(sessionId, 'generating...')
@@ -277,6 +311,46 @@ export function Sidebar({
     [setCustomTitle, applyTitle]
   )
 
+  const handleRenameRef = useRef(handleRename)
+  handleRenameRef.current = handleRename
+
+  // New threads: name them from the first message, emoji first.
+  const autoNamedRef = useRef(new Set<string>())
+  useEffect(() => {
+    const userCounts = new Map<string, number>()
+    const countUsers = (messages: { role: string }[]) =>
+      messages.reduce((n, m) => n + (m.role === 'user' ? 1 : 0), 0)
+    // Sessions already open at startup are not new threads; a session first seen after
+    // this (created with its first message already in it) counts as having had 0.
+    for (const [id, sess] of Object.entries(useSessionStore.getState().sessions)) {
+      userCounts.set(id, countUsers(sess.messages))
+    }
+    return useSessionStore.subscribe((state) => {
+      for (const [id, sess] of Object.entries(state.sessions)) {
+        const now = countUsers(sess.messages)
+        if (now === 1 && !autoNamedRef.current.has(id))
+          window.api.logError(
+            'AutoName',
+            `seen ${id} users=${now} hist=${sess.isHistorical} evicted=${sess.evicted} title=${state.customTitles[id]}`
+          )
+        const prev = userCounts.get(id) ?? (sess.isHistorical || sess.evicted ? undefined : 0)
+        userCounts.set(id, now)
+        if (
+          (prev === undefined || prev === 0) &&
+          now === 1 &&
+          !sess.isHistorical &&
+          !sess.evicted &&
+          !state.customTitles[id] &&
+          !autoNamedRef.current.has(id)
+        ) {
+          autoNamedRef.current.add(id)
+          window.api.logError('AutoName', `firing for ${id}`)
+          setTimeout(() => handleRenameRef.current(id, ''), 1500)
+        }
+      }
+    })
+  }, [])
+
   const handleAutoRename = useCallback(
     (sessionId: string) => {
       handleRename(sessionId, '')
@@ -309,11 +383,60 @@ export function Sidebar({
   // list and a reconnecting client lost its opencode/pi rows for up to 30 s.
 
   const handleNewSession = (): void => {
-    showWelcome()
+    // The kid profile skips the welcome screen's folder choice: a new chat opens in his sandbox.
+    if (profile === 'kid' && sandboxDir) {
+      createNewSession(uuid(), sandboxDir)
+      if (isMobile && onToggleCollapse) onToggleCollapse()
+      return
+    }
+    // Chat mode skips the folder choice too: a new conversation opens in the chat folder.
+    if (chatMode) {
+      createNewSession(uuid(), chatDir)
+      if (isMobile && onToggleCollapse) onToggleCollapse()
+      return
+    }
+    // Default to the project worked in last; the session's header lets the user change it.
+    const lastProject = mostRecentProject(directories)
+    if (lastProject) createNewSession(uuid(), lastProject.cwd)
+    else showWelcome()
     if (isMobile && onToggleCollapse) onToggleCollapse()
   }
 
+  // Switching tabs must not leave the other tab's session on screen: each tab remembers the
+  // session that was open when it was left and comes back to it. A tab with nothing to return
+  // to (or whose session was closed) drops to a new chat / the welcome screen, as before.
+  const lastSessionByMode = useRef<Partial<Record<'chat' | 'code', string>>>({})
+  const handleSetAppMode = (mode: 'chat' | 'code'): void => {
+    setAppMode(mode)
+    if (profile !== 'curtis' || !chatDir || mode === appMode) return
+    const { activeSessionId, sessions } = useSessionStore.getState()
+    const activeCwd = activeSessionId ? sessions[activeSessionId]?.cwd : ''
+    if (activeSessionId && activeCwd) {
+      const activeMode = isInsideOrEqual(chatDir, activeCwd) ? 'chat' : 'code'
+      lastSessionByMode.current[activeMode] = activeSessionId
+    }
+    const remembered = lastSessionByMode.current[mode]
+    const rememberedCwd = remembered ? sessions[remembered]?.cwd : ''
+    if (
+      remembered &&
+      rememberedCwd &&
+      isInsideOrEqual(chatDir, rememberedCwd) === (mode === 'chat')
+    ) {
+      switchSession(remembered)
+      return
+    }
+    if (!activeCwd || isInsideOrEqual(chatDir, activeCwd) === (mode === 'chat')) return
+    if (mode === 'chat') {
+      createNewSession(uuid(), chatDir)
+      return
+    }
+    const lastProject = mostRecentProject(directories)
+    if (lastProject) createNewSession(uuid(), lastProject.cwd)
+    else showWelcome()
+  }
+
   const handleNewSessionDblClick = async (): Promise<void> => {
+    if (profile === 'kid') return
     // The web client has no native dialog — `pickFolder()` resolves to null and
     // `session:pick-folder` declares `host`, so it is never registered on the
     // remote dispatcher — route to the welcome screen's host-backed browser
@@ -329,6 +452,12 @@ export function Sidebar({
       const routingId = uuid()
       createNewSession(routingId, folder)
     }
+  }
+
+  const handleSwitchProfile = async (): Promise<void> => {
+    await switchProfile(profile === 'kid' ? 'curtis' : 'kid')
+    // The open chat belongs to the profile just left: go back to the welcome screen.
+    showWelcome()
   }
 
   const handleClickSession = async (info: SessionInfo): Promise<void> => {
@@ -369,7 +498,7 @@ export function Sidebar({
   }
 
   const handleDirClick = (projectKey: string): void => {
-    setExpandedDir((prev) => (prev === projectKey ? null : projectKey))
+    toggleDirExpanded(projectKey)
   }
 
   const handleDirDoubleClick = (group: DirectoryGroup): void => {
@@ -402,19 +531,6 @@ export function Sidebar({
     }
   }
 
-  const handleRemoveRecent = useCallback(
-    (info: SessionInfo) => {
-      const worktreeInfo = worktreeInfoMap[info.sessionId]
-      // Removal is offered only for worktrees ClaudeUI created (C-S11).
-      if (worktreeInfo && isCreatedWorktree(worktreeInfo)) {
-        setCleanupWorktree({ sessionId: info.sessionId, worktreeInfo })
-      } else {
-        removeRecentSession(info.sessionId)
-      }
-    },
-    [worktreeInfoMap, removeRecentSession]
-  )
-
   // Helper to resolve a session ID to a SessionInfo
   const resolveSessionInfo = useCallback(
     (rid: string): SessionInfo | undefined => {
@@ -436,6 +552,13 @@ export function Sidebar({
     [directories, sidebarSessions, customTitles, sessionEngines]
   )
 
+  // An archived chat is left out of every list while archived chats are switched off, except the
+  // one open right now: it must not vanish from under you.
+  const isArchivedAway = useCallback(
+    (rid: string): boolean => !showArchived && archivedIds.has(rid) && rid !== activeSessionId,
+    [showArchived, archivedIds, activeSessionId]
+  )
+
   // Memoize derived lists — only recompute when their inputs change
   const pinnedSet = useMemo(() => new Set(pinnedSessionIds), [pinnedSessionIds])
 
@@ -443,56 +566,74 @@ export function Sidebar({
     const result: SessionInfo[] = []
     for (const rid of pinnedSessionIds) {
       if (!showHidden && hiddenSessionSet.has(rid)) continue
+      if (isArchivedAway(rid)) continue
       const info = resolveSessionInfo(rid)
-      if (info) result.push(info)
-    }
-    return result
-  }, [pinnedSessionIds, resolveSessionInfo, hiddenSessionSet, showHidden])
-
-  const recentSessions = useMemo(() => {
-    const result: SessionInfo[] = []
-    for (const rid of recentSessionIds) {
-      if (result.length >= maxRecentSessions) break
-      if (pinnedSet.has(rid)) continue
-      if (!showHidden && hiddenSessionSet.has(rid)) continue
-      const info = resolveSessionInfo(rid)
-      if (info) result.push(info)
+      if (info && inProfile(info.cwd)) result.push(info)
     }
     return result
   }, [
-    recentSessionIds,
-    maxRecentSessions,
-    pinnedSet,
+    pinnedSessionIds,
     resolveSessionInfo,
     hiddenSessionSet,
-    showHidden
+    showHidden,
+    isArchivedAway,
+    inProfile
   ])
 
   const watchingSessions = useMemo(() => {
-    const recentSet = new Set(recentSessionIds)
     const result: SessionInfo[] = []
     for (const [rid, data] of Object.entries(sidebarSessions)) {
       if (!data.isWatching) continue
-      if (pinnedSet.has(rid) || recentSet.has(rid)) continue
+      if (pinnedSet.has(rid)) continue
       if (!showHidden && hiddenSessionSet.has(rid)) continue
+      if (isArchivedAway(rid)) continue
       const info = resolveSessionInfo(rid)
-      if (info) result.push(info)
+      if (info && inProfile(info.cwd)) result.push(info)
     }
     return result
   }, [
     sidebarSessions,
-    recentSessionIds,
     pinnedSet,
     resolveSessionInfo,
     hiddenSessionSet,
-    showHidden
+    showHidden,
+    isArchivedAway,
+    inProfile
   ])
+
+  // Hiding the thread you are on must not leave it on screen: move to the most recently opened
+  // thread of the same kind (chat or code) that is not itself being hidden. With none, stay put.
+  const leaveIfActiveHidden = useCallback(
+    (hiding: ReadonlySet<string>): void => {
+      const {
+        activeSessionId: activeId,
+        sessions,
+        recentSessionIds,
+        pinnedSessionIds
+      } = useSessionStore.getState()
+      if (!activeId || !hiding.has(activeId)) return
+      const kindOf = (cwd: string): 'chat' | 'code' =>
+        chatDir && isInsideOrEqual(chatDir, cwd) ? 'chat' : 'code'
+      const activeCwd = sessions[activeId]?.cwd
+      if (!activeCwd) return
+      const kind = kindOf(activeCwd)
+      const target = [...recentSessionIds, ...pinnedSessionIds].find((id) => {
+        if (id === activeId || hiding.has(id) || hiddenSessionSet.has(id)) return false
+        if (!showArchived && archivedIds.has(id)) return false
+        const cwd = sessions[id]?.cwd
+        return !!cwd && kindOf(cwd) === kind
+      })
+      if (target) switchSession(target)
+    },
+    [chatDir, hiddenSessionSet, showArchived, archivedIds, switchSession]
+  )
 
   const handleHideSession = useCallback(
     (info: SessionInfo) => {
+      leaveIfActiveHidden(new Set([info.sessionId]))
       hideSession(info.sessionId)
     },
-    [hideSession]
+    [hideSession, leaveIfActiveHidden]
   )
 
   const handleUnhideSession = useCallback(
@@ -633,8 +774,107 @@ export function Sidebar({
         sessions: applyCustomTitles(extraSessions)
       })
     }
-    return result
-  }, [directories, sidebarSessions, customTitles, sessionEngines])
+    // Only this profile's projects: the kid's sandbox, or everything but it.
+    const profileResult = result.filter((group) => inProfile(group.cwd))
+    // Archived chats switched off: leave them out of each project (the project itself stays).
+    const visibleResult =
+      showArchived || archivedIds.size === 0
+        ? profileResult
+        : profileResult.map((group) => ({
+            ...group,
+            sessions: group.sessions.filter((s) => !isArchivedAway(s.sessionId))
+          }))
+    // Most recently used project first, and each project's chats newest first.
+    const newestIn = (group: DirectoryGroup): number =>
+      group.sessions.reduce((max, s) => Math.max(max, s.lastActivityAt), 0)
+    return visibleResult
+      .map((group) => ({
+        ...group,
+        sessions: [...group.sessions].sort((a, b) => b.lastActivityAt - a.lastActivityAt)
+      }))
+      .sort((a, b) => newestIn(b) - newestIn(a))
+  }, [
+    directories,
+    sidebarSessions,
+    customTitles,
+    sessionEngines,
+    showArchived,
+    archivedIds,
+    isArchivedAway,
+    inProfile
+  ])
+
+  // Opening a thread opens its folder. Runs once per newly active thread, so a folder the
+  // user then closes by hand stays closed; waits until the thread shows up in a group.
+  const expandedForSession = useRef<string | null>(null)
+  useEffect(() => {
+    if (!activeSessionId || expandedForSession.current === activeSessionId) return
+    const group = augmentedDirs.find((g) => g.sessions.some((s) => s.sessionId === activeSessionId))
+    if (!group) return
+    expandedForSession.current = activeSessionId
+    expandDir(group.projectKey || group.cwd)
+  }, [activeSessionId, augmentedDirs])
+
+  // Every chat the project lists show right now: what "All" and "Archived" pick from.
+  const visibleSessionIds = useMemo(
+    () =>
+      augmentedDirs.flatMap((group) =>
+        group.sessions
+          .map((s) => s.sessionId)
+          .filter((id) => showHidden || !hiddenSessionSet.has(id))
+      ),
+    [augmentedDirs, showHidden, hiddenSessionSet]
+  )
+  const selectedHiddenCount = useMemo(
+    () => [...selectedIds].filter((id) => hiddenSessionSet.has(id)).length,
+    [selectedIds, hiddenSessionSet]
+  )
+
+  const leaveSelecting = useCallback((): void => {
+    setSelecting(false)
+    setSelectedIds(new Set())
+  }, [])
+  const toggleSelecting = useCallback((): void => {
+    if (selecting) leaveSelecting()
+    else setSelecting(true)
+  }, [selecting, leaveSelecting])
+  const toggleSelected = useCallback((sessionId: string): void => {
+    setSelectedIds((was) => {
+      const next = new Set(was)
+      if (!next.delete(sessionId)) next.add(sessionId)
+      return next
+    })
+  }, [])
+  // A project's box: pick all of its chats, or, when they are all picked already, let them go.
+  const toggleSelectedMany = useCallback((sessionIds: string[]): void => {
+    setSelectedIds((was) => {
+      const allPicked = sessionIds.every((id) => was.has(id))
+      const next = new Set(was)
+      for (const id of sessionIds) {
+        if (allPicked) next.delete(id)
+        else next.add(id)
+      }
+      return next
+    })
+  }, [])
+  const selectAll = useCallback(
+    (): void => setSelectedIds(new Set(visibleSessionIds)),
+    [visibleSessionIds]
+  )
+  const selectArchived = useCallback(
+    (): void => setSelectedIds(new Set(visibleSessionIds.filter((id) => archivedIds.has(id)))),
+    [visibleSessionIds, archivedIds]
+  )
+  const hideSelected = useCallback((): void => {
+    const going = [...selectedIds].filter((id) => !hiddenSessionSet.has(id))
+    leaveIfActiveHidden(new Set(going))
+    hideSessionsAction(going)
+    leaveSelecting()
+  }, [selectedIds, hiddenSessionSet, hideSessionsAction, leaveSelecting, leaveIfActiveHidden])
+  const unhideSelected = useCallback((): void => {
+    unhideSessionsAction([...selectedIds].filter((id) => hiddenSessionSet.has(id)))
+    leaveSelecting()
+  }, [selectedIds, hiddenSessionSet, unhideSessionsAction, leaveSelecting])
 
   return (
     <>
@@ -661,13 +901,26 @@ export function Sidebar({
         pinnedSessionIds={pinnedSessionIds}
         pinnedSessions={pinnedSessions}
         watchingSessions={watchingSessions}
-        recentSessions={recentSessions}
         augmentedDirs={augmentedDirs}
         hiddenSessionSet={hiddenSessionSet}
         hiddenProjectSet={hiddenProjectSet}
         hasAnyHidden={hasAnyHidden}
         showHidden={showHidden}
-        expandedDir={expandedDir}
+        hasAnyArchived={archivedIds.size > 0}
+        showArchived={showArchived}
+        onShowArchivedToggle={toggleShowArchived}
+        selecting={selecting}
+        selectedIds={selectedIds}
+        selectedHiddenCount={selectedHiddenCount}
+        onToggleSelecting={toggleSelecting}
+        onToggleSelected={toggleSelected}
+        onToggleSelectedMany={toggleSelectedMany}
+        onSelectAll={selectAll}
+        onSelectArchived={selectArchived}
+        onClearSelection={() => setSelectedIds(new Set())}
+        onHideSelected={hideSelected}
+        onUnhideSelected={unhideSelected}
+        expandedDirs={expandedDirs}
         renamingKey={renamingKey}
         worktreesModalCwd={worktreesModalCwd}
         deleteTarget={deleteTarget}
@@ -675,6 +928,10 @@ export function Sidebar({
         cleanupWorktree={cleanupWorktree}
         onToggleCollapse={onToggleCollapse}
         onNewSession={handleNewSession}
+        appMode={profile === 'curtis' && chatDir ? appMode : undefined}
+        onSetAppMode={handleSetAppMode}
+        profileLabel={profile === 'kid' ? KID_PROFILE_NAME : 'Curtis'}
+        onSwitchProfile={window.api.setProfile ? handleSwitchProfile : undefined}
         onNewSessionDblClick={handleNewSessionDblClick}
         onSetActiveView={setActiveView}
         onShowHiddenToggle={() => setShowHidden((v) => !v)}
@@ -686,7 +943,6 @@ export function Sidebar({
         onReorderPinned={reorderPinnedSessions}
         onFinishRename={handleRename}
         onAutoRename={handleAutoRename}
-        onRemoveRecent={handleRemoveRecent}
         onDirClick={handleDirClick}
         onDirDoubleClick={handleDirDoubleClick}
         onSessionDoubleClick={(info) => addRecentSession(info.sessionId)}
