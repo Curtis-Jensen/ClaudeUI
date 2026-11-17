@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useResolvedTheme } from '../../lib/use-resolved-theme'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import type { TerminalAttachResult } from '../../../../shared/types'
@@ -163,7 +164,7 @@ export function XTermInstance({
    * mirror mode — the desktop would just be re-rendering on every window drag.
    */
   const [grid, setGrid] = useState<{ cols: number; rows: number } | null>(null)
-  const theme = useSessionStore((s) => s.settings.theme)
+  const theme = useResolvedTheme()
   /**
    * Read through a ref for the same reason the input gate is: the mount effect
    * keys on `terminalId` alone. The value is in practice fixed for a mount (the

@@ -21,6 +21,7 @@
  */
 
 import { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import type {
   ActiveTask,
   ContentBlock,
@@ -156,9 +157,15 @@ export function ToolCard({
   onOpenTaskPanel
 }: ToolCardProps): React.JSX.Element {
   const isReadKind = kind === 'fileRead'
-  const [expanded, setExpanded] = useState(
+  // Edit cards never expand inline: opening one takes over the window with the
+  // diff (chat input unreachable) until it is closed. `expandToolCalls` does not
+  // apply, or every edit in a session would pop fullscreen on load.
+  const isEditKind = kind === 'fileEdit'
+  const [fullscreen, setFullscreen] = useState(false)
+  const [inlineExpanded, setExpanded] = useState(
     isReadKind ? expandToolCalls && expandReadResults : expandToolCalls
   )
+  const expanded = isEditKind ? fullscreen : inlineExpanded
   useEffect(() => {
     if (isReadKind) {
       setExpanded(expandToolCalls && expandReadResults)
@@ -166,6 +173,15 @@ export function ToolCard({
       setExpanded(expandToolCalls)
     }
   }, [expandToolCalls, expandReadResults, isReadKind])
+
+  useEffect(() => {
+    if (!fullscreen) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setFullscreen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [fullscreen])
 
   const toolUseId = block.toolUseId || ''
 
@@ -309,7 +325,7 @@ export function ToolCard({
     >
       <button
         data-testid="ToolCard.expand"
-        onClick={() => setExpanded(!expanded)}
+        onClick={() => (isEditKind ? setFullscreen(true) : setExpanded(!inlineExpanded))}
         className="w-full flex items-center gap-2 px-3 h-9 text-[13px] hover:bg-bg-hover transition-colors cursor-pointer"
       >
         {statusIcon}
@@ -385,14 +401,54 @@ export function ToolCard({
 
       {/* The verdict sits between the header and the body, in the approval
           card's own vocabulary — it is a permission decision, not reasoning. */}
-      {expanded && review && <ToolReviewStrip review={review} onApprove={approveBlocked} />}
-      {expanded && denial && <PermissionDenialStrip denial={denial} />}
+      {expanded && !isEditKind && review && (
+        <ToolReviewStrip review={review} onApprove={approveBlocked} />
+      )}
+      {expanded && !isEditKind && denial && <PermissionDenialStrip denial={denial} />}
 
-      {expanded && (
+      {expanded && !isEditKind && (
         <div className="border-t border-border">
           <Body {...bodyProps} />
         </div>
       )}
+
+      {fullscreen &&
+        createPortal(
+          <div
+            data-testid="ToolCard.fullscreen"
+            className="fixed inset-0 z-[300] flex flex-col bg-bg-primary"
+          >
+            <div className="flex items-center gap-2 px-4 h-11 shrink-0 border-b border-border text-[13px]">
+              {statusIcon}
+              <span className="font-mono font-medium text-accent">{headerName}</span>
+              <span className="text-text-secondary truncate flex-1 font-mono text-[12px]">
+                {summary}
+              </span>
+              {chips.map((chip) => (
+                <span
+                  key={chip.label}
+                  className={`text-[10px] font-mono px-1.5 py-0.5 rounded shrink-0 border ${CHIP_TONE_CLASSES[chip.tone]}`}
+                >
+                  {chip.label}
+                </span>
+              ))}
+              <button
+                data-testid="ToolCard.fullscreenClose"
+                onClick={() => setFullscreen(false)}
+                title="Close (Esc)"
+                className="text-[12px] px-2.5 py-1 rounded bg-bg-secondary hover:bg-bg-hover border border-border cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+            {review && <ToolReviewStrip review={review} onApprove={approveBlocked} />}
+            {denial && <PermissionDenialStrip denial={denial} />}
+            <div className="flex-1 min-h-0 overflow-auto flex flex-col">
+              <Body {...bodyProps} />
+            </div>
+          </div>,
+          document.body
+        )}
 
       {/* Images the tool RETURNED, in the shared result area so every standard
           kind gets them without touching its body. Notably this bypasses

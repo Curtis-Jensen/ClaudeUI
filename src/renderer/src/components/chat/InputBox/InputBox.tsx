@@ -791,6 +791,7 @@ export function InputBox(): React.JSX.Element {
         }
         markSdkActive(activeSessionId)
       }
+      useSessionStore.getState().unhideForSession(activeSessionId)
       await window.api.sendPrompt(activeSessionId, prompt, attachments)
     },
     [activeSessionId, sdkActive, markSdkActive]
@@ -1099,6 +1100,7 @@ export function InputBox(): React.JSX.Element {
         const sessionId = activeSessionId!
         try {
           if (action.type === 'queue-prompt') {
+            useSessionStore.getState().unhideForSession(sessionId)
             await window.api.sendPrompt(sessionId, action.prompt, action.attachments)
           } else {
             await doSend(action.prompt, action.attachments)

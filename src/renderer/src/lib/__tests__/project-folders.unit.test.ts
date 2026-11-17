@@ -6,6 +6,7 @@ import {
   moveSessionToFolder,
   renameProjectFolder,
   resetProjectFoldersForTests,
+  setProjectFolderEmoji,
   toggleProjectFolderOpen
 } from '../project-folders'
 
@@ -81,5 +82,15 @@ describe('project folders', () => {
     moveSessionToFolder('s1', a)
     deleteProjectFolder(a)
     expect(read().sessionAssignments).toEqual({})
+  })
+
+  it('sets one emoji on a folder, keeps a whole joined emoji, and clears it on blank', () => {
+    const a = createProjectFolder('A')!
+    setProjectFolderEmoji(a, '🔥 hot')
+    expect(read().folders[0]).toMatchObject({ emoji: '🔥' })
+    setProjectFolderEmoji(a, '👨‍👩‍👧')
+    expect(read().folders[0]).toMatchObject({ emoji: '👨‍👩‍👧' })
+    setProjectFolderEmoji(a, '  ')
+    expect(read().folders[0]).not.toHaveProperty('emoji')
   })
 })

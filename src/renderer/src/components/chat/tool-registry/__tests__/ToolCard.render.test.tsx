@@ -91,7 +91,8 @@ beforeEach(() => {
     saveSlashCommands: vi.fn(),
     fetchAccountUsage: () => Promise.resolve(null),
     fetchBlockUsage: () => Promise.resolve(null),
-    getPluginViews: () => Promise.resolve([])
+    getPluginViews: () => Promise.resolve([]),
+    explainEdit: vi.fn(async () => 'Changed one value.')
   }
   // Use createNewSession for a complete session shape (BackgroundBashOutput reads
   // backgroundWatcherCounts/backgroundOutputs from it for foreground/bg bash).
@@ -216,6 +217,9 @@ describe('ToolCard — fileEdit kind', () => {
         })}
       />
     )
+    // Edit cards open fullscreen on click, never inline
+    fireEvent.click(screen.getByTestId('ToolCard.expand'))
+    expect(screen.getByTestId('ToolCard.fullscreen')).toBeInTheDocument()
     // Single diff only (was two before ROADMAP #11c)
     const diffs = screen.getAllByTestId('DiffViewer')
     expect(diffs).toHaveLength(1)
@@ -243,6 +247,7 @@ describe('ToolCard — fileEdit kind', () => {
         })}
       />
     )
+    fireEvent.click(screen.getByTestId('ToolCard.expand'))
     // Input is hidden, so diff must appear in Result
     const diffs = screen.getAllByTestId('DiffViewer')
     expect(diffs).toHaveLength(1)
@@ -262,6 +267,7 @@ describe('ToolCard — fileEdit kind', () => {
         })}
       />
     )
+    fireEvent.click(screen.getByTestId('ToolCard.expand'))
     expect(screen.queryByTestId('DiffViewer')).not.toBeInTheDocument()
     // generic JSON dump of block.toolInput
     expect(screen.getAllByText(/"edits"/).length).toBeGreaterThanOrEqual(1)
@@ -942,7 +948,7 @@ describe('ToolCard — metadata chips', () => {
         })}
       />
     )
-    expect(chipText()).toEqual(['+2 −1', 'typescript'])
+    expect(chipText()).toEqual(['+2', '−1', 'typescript'])
   })
 
   it('shows an exit code for an engine that reports one', () => {

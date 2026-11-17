@@ -1753,7 +1753,7 @@ export const SECTIONS: Section[] = [
       {
         key: 'theme',
         label: 'Theme',
-        keywords: 'dark light monokai color',
+        keywords: 'system mac auto dark light monokai color',
         render: (s, u) => (
           <SettingsSelect
             testid="SettingsTheme"
@@ -1761,6 +1761,7 @@ export const SECTIONS: Section[] = [
             {...appDefault(s, u, 'theme')}
             value={s.theme}
             options={[
+              { value: 'system' as const, label: 'System (follow Mac)' },
               { value: 'dark' as const, label: 'Dark' },
               { value: 'light' as const, label: 'Light' },
               { value: 'monokai' as const, label: 'Monokai' }

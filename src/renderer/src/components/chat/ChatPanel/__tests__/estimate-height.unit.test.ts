@@ -5,7 +5,14 @@
  * estimate-height.browser.test.tsx checks the absolute numbers against real
  * renders.
  */
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
+
+// These measure card geometry with Bash as the sample card, so the chat's
+// hiding of plain shell commands (hidden-shell.ts) is switched off here.
+vi.mock('../../tool-registry/hidden-shell', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../tool-registry/hidden-shell')>()),
+  isHiddenShellCall: () => false
+}))
 import {
   bucketColumnWidth,
   defaultColumnWidth,

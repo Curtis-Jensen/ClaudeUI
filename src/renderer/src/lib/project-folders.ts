@@ -17,12 +17,21 @@ const KEY = 'sidebar.projectFolders'
 /** dataTransfer type a thread row carries while it is dragged toward a folder. */
 export const SESSION_DRAG_TYPE = 'application/x-claudeui-session'
 
+/** dataTransfer type a project header carries while it is dragged toward a folder; the value is the project's key. */
+export const PROJECT_DRAG_TYPE = 'application/x-claudeui-project'
+
 export interface ProjectFolder {
   id: string
   name: string
+  /** One emoji shown in place of the folder icon; absent means the plain icon. */
+  emoji?: string
   /** Folders start folded: they exist to get projects out of the way. */
   open: boolean
+  /** The sidebar tab the folder lives in; folders saved before the Code tab had any are Chat folders. */
+  mode: FolderMode
 }
+
+export type FolderMode = 'chat' | 'code'
 
 export interface ProjectFolders {
   folders: readonly ProjectFolder[]
@@ -44,6 +53,17 @@ function cleanAssignmentMap(raw: unknown, ids: ReadonlySet<string>): Record<stri
   return out
 }
 
+/** The first user-perceived character (an emoji with its joiners and skin tone is one), or '' for blank. */
+function firstGrapheme(text: string): string {
+  const trimmed = text.trim()
+  if (!trimmed) return ''
+  const first = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+    .segment(trimmed)
+    [Symbol.iterator]()
+    .next()
+  return first.done ? '' : first.value.segment
+}
+
 function load(): ProjectFolders {
   try {
     const raw = localStorage.getItem(KEY)
@@ -54,7 +74,14 @@ function load(): ProjectFolders {
     if (Array.isArray(folders)) {
       for (const f of folders) {
         if (f && typeof f.id === 'string' && typeof f.name === 'string' && f.name) {
-          cleanFolders.push({ id: f.id, name: f.name, open: f.open === true })
+          const emoji = typeof f.emoji === 'string' ? firstGrapheme(f.emoji) : ''
+          cleanFolders.push({
+            id: f.id,
+            name: f.name,
+            ...(emoji ? { emoji } : {}),
+            open: f.open === true,
+            mode: f.mode === 'code' ? 'code' : 'chat'
+          })
         }
       }
     }
@@ -88,11 +115,11 @@ function commit(next: ProjectFolders): void {
 }
 
 /** Make a folder; returns its id, or null for a blank name. */
-export function createProjectFolder(name: string): string | null {
+export function createProjectFolder(name: string, mode: FolderMode = 'chat'): string | null {
   const trimmed = name.trim()
   if (!trimmed) return null
   const id = `f-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
-  commit({ ...state, folders: [...state.folders, { id, name: trimmed, open: true }] })
+  commit({ ...state, folders: [...state.folders, { id, name: trimmed, open: true, mode }] })
   return id
 }
 
@@ -102,6 +129,19 @@ export function renameProjectFolder(id: string, name: string): void {
   commit({
     ...state,
     folders: state.folders.map((f) => (f.id === id ? { ...f, name: trimmed } : f))
+  })
+}
+
+/** Give a folder an emoji (only the first character is kept), or pass blank to go back to the folder icon. */
+export function setProjectFolderEmoji(id: string, emoji: string): void {
+  const one = firstGrapheme(emoji)
+  commit({
+    ...state,
+    folders: state.folders.map((f) => {
+      if (f.id !== id) return f
+      const { emoji: _old, ...rest } = f
+      return one ? { ...rest, emoji: one } : rest
+    })
   })
 }
 

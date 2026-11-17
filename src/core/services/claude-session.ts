@@ -68,6 +68,7 @@ import { createMermaidServer } from './mermaid-tool'
 import { createMockupServer } from './mockup-tool'
 import { createCollabServer } from './collab-tool'
 import { ToolUseOwners } from './tool-use-owners'
+import { BashFileChanges } from './bash-file-changes'
 import {
   createSessionToolsServer,
   SESSION_TOOLS_PREFIX,
@@ -342,6 +343,8 @@ export class ClaudeSession extends BaseSession {
    * a subagent in modes that never call `canUseTool`.
    */
   private readonly toolUseOwners = new ToolUseOwners()
+  /** Snapshots around each Bash command, so its card can show the files it changed. */
+  private bashFileChanges: BashFileChanges | undefined
   /**
    * An agent's identity, and the three maps that keep it (ADR-073).
    *
@@ -962,10 +965,42 @@ export class ClaudeSession extends BaseSession {
         )
       }
 
+      if (this.bashFileChanges?.cwd !== this.cwd) {
+        this.bashFileChanges = new BashFileChanges(this.cwd)
+        this.bashFileChanges.warm()
+      }
+      const bashFileChanges = this.bashFileChanges
+      const afterBash = async (_input: Record<string, unknown>, toolUseId?: string) => {
+        if (toolUseId) await bashFileChanges.afterCommand(toolUseId)
+        return {}
+      }
+
       const q = sdkQuery({
         prompt: channel as AsyncIterable<never>,
         options: {
           ...execOpts,
+          // cli.js awaits these around every Bash command (subagents' too): a
+          // snapshot before, a diff after, which the tool result then carries.
+          hooks: {
+            PreToolUse: [
+              {
+                matcher: 'Bash',
+                hooks: [
+                  async (input, toolUseId) => {
+                    const toolInput = input.tool_input as Record<string, unknown> | undefined
+                    if (toolUseId)
+                      await bashFileChanges.beforeCommand(
+                        toolUseId,
+                        String(toolInput?.command ?? '')
+                      )
+                    return {}
+                  }
+                ]
+              }
+            ],
+            PostToolUse: [{ matcher: 'Bash', hooks: [afterBash] }],
+            PostToolUseFailure: [{ matcher: 'Bash', hooks: [afterBash] }]
+          },
           // A guess at the next thing the person will say, shown as ghost text in the input.
           promptSuggestions: true,
           cwd: this.cwd,
@@ -3681,6 +3716,8 @@ ${MOOD_FACE_PROMPT_SECTION}${kidProfile ? kidProfilePromptSection(kidSandboxDir(
       // run_in_background command is listed in the roster and opens like the
       // main agent's, so its entry must be able to tail the file (ADR-073 §7).
       this.recordBackgroundOutput(toolUseId, resultText)
+      // Files a Bash command changed (bash-file-changes.ts); none for any other tool.
+      const fileDiffs = this.bashFileChanges?.take(toolUseId)
 
       if (parentToolUseId) {
         this.send('session:subagent-tool-result', {
@@ -3688,14 +3725,16 @@ ${MOOD_FACE_PROMPT_SECTION}${kidProfile ? kidProfilePromptSection(kidSandboxDir(
           toolResultToolUseId: toolUseId,
           result: resultText,
           isError: !!b.is_error,
-          ...(images ? { images } : {})
+          ...(images ? { images } : {}),
+          ...(fileDiffs ? { fileDiffs } : {})
         })
       } else {
         this.send('session:tool-result', {
           toolUseId,
           result: resultText,
           isError: !!b.is_error,
-          ...(images ? { images } : {})
+          ...(images ? { images } : {}),
+          ...(fileDiffs ? { fileDiffs } : {})
         })
       }
 

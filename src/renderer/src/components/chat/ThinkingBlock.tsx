@@ -36,6 +36,12 @@ function WaveText({ text }: { text: string }): React.JSX.Element {
   )
 }
 
+/** 269 → "4m 29s"; under a minute stays "45s". */
+function formatSeconds(totalSec: number): string {
+  if (totalSec < 60) return `${totalSec}s`
+  return `${Math.floor(totalSec / 60)}m ${totalSec % 60}s`
+}
+
 export function ThinkingBlock({ text, isActive, durationMs, startedAt }: Props): React.JSX.Element {
   const expandThinking = useSessionStore((s) => s.settings.expandThinking)
   const [expanded, setExpanded] = useState(expandThinking)
@@ -58,9 +64,9 @@ export function ThinkingBlock({ text, isActive, durationMs, startedAt }: Props):
   const durationSec = isActive ? elapsed : durationMs != null ? Math.round(durationMs / 1000) : null
 
   const label = isActive
-    ? `Thinking\u2009....\u2009(${durationSec}s)`
+    ? `Thinking\u2009....\u2009(${formatSeconds(durationSec ?? 0)})`
     : durationSec != null
-      ? `Thought for ${durationSec}s`
+      ? `Thought for ${formatSeconds(durationSec)}`
       : 'Thought'
 
   return (

@@ -147,6 +147,8 @@ export const SessionItem = memo(function SessionItem({
   const renameRef = useRef<HTMLInputElement>(null)
   const renameCommittedRef = useRef(false)
   const [permissionsOpen, setPermissionsOpen] = useState(false)
+  // First click on the archive icon only fades the row (back burner); the second click hides it.
+  const [dormant, setDormant] = useState(false)
 
   const dotState = deriveSessionDotState({
     active,
@@ -198,6 +200,7 @@ export const SessionItem = memo(function SessionItem({
         onClick={selecting ? onToggleSelected : onClick}
         onDoubleClick={selecting ? undefined : onDoubleClick}
         onContextMenu={menu.open}
+        onMouseLeave={() => setDormant(false)}
         draggable={selecting ? false : draggable}
         onDragStart={onDragStart}
         onDragOver={onDragOver}
@@ -213,7 +216,7 @@ export const SessionItem = memo(function SessionItem({
         className={`
           group relative flex items-center gap-2.5 h-8 rounded-md text-[13px] cursor-default transition
           ${active ? 'text-text-primary bg-bg-tertiary' : 'text-text-secondary hover:text-text-primary hover:bg-bg-hover'}
-          ${hidden ? 'opacity-45 italic' : ''}
+          ${hidden || dormant ? 'opacity-45 italic' : ''}
           hover:brightness-110
           ${active ? 'z-10 scale-[1.03] shadow-[0_4px_14px_rgba(0,0,0,0.5)]' : ''}
           ${selecting && selected ? 'bg-bg-hover text-text-primary' : ''}
@@ -312,7 +315,7 @@ export const SessionItem = memo(function SessionItem({
           </span>
         )}
         {pr.state !== 'none' && <BranchPrIcon state={pr.state} url={pr.url} />}
-        {(dotState === 'running' || dotState === 'subagents') && (
+        {dotState === 'running' && (
           <svg
             data-testid="SessionItem.gear"
             aria-label="Working"
@@ -399,14 +402,22 @@ export const SessionItem = memo(function SessionItem({
             {canArchive && (
               <span
                 data-testid="SessionItem.archive"
-                // Archiving is frequent, so a single click does nothing: it takes a double-click.
-                onClick={(e) => e.stopPropagation()}
-                onDoubleClick={(e) => {
+                // Archiving is frequent, so it takes two clicks: the first fades the row, the second hides it.
+                onClick={(e) => {
                   e.stopPropagation()
-                  onHide?.()
+                  if (dormant) {
+                    setDormant(false)
+                    onHide?.()
+                  } else {
+                    setDormant(true)
+                  }
                 }}
                 className="shrink-0 text-text-primary opacity-90 hover:opacity-100 transition-opacity cursor-pointer"
-                title="Double-click to archive (hide) this session"
+                title={
+                  dormant
+                    ? 'Click again to archive (hide) this session'
+                    : 'Click to fade, click again to archive (hide)'
+                }
               >
                 <svg
                   width="12"

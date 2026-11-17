@@ -13,6 +13,7 @@ import type {
   ForkAnchorResult,
   ModelCostEntry,
   EngineId,
+  FileDiff,
   SubagentIndexEntry
 } from '../../shared/types'
 import { isImageMediaType } from '../../shared/types'
@@ -52,6 +53,7 @@ import {
 } from './handback-history'
 import { agentNoteMessage, peerRowParts, sessionMessageNote } from './agent-note'
 import { queuedCommandText } from '../sdk/queued-command-text'
+import { savedFileDiffs } from './bash-file-changes'
 
 const CLAUDE_PROJECTS_DIR = path.join(os.homedir(), '.claude', 'projects')
 
@@ -1080,6 +1082,12 @@ export function fallbackBlockText(block: Record<string, unknown>): string {
   return `Switched models${from ? ` from ${from}` : ''}${to ? ` to ${to}` : ''}.`
 }
 
+/** The files a past Bash call changed, which the transcript itself never records. */
+function withSavedFileDiffs(toolUseId: string): { fileDiffs?: FileDiff[] } {
+  const fileDiffs = savedFileDiffs(toolUseId)
+  return fileDiffs ? { fileDiffs } : {}
+}
+
 /** Parse CLI command XML into structured data */
 function parseCliCommand(
   text: string
@@ -1797,7 +1805,8 @@ export async function loadSessionHistory(
                           toolUseId: block.tool_use_id,
                           toolResult: resultText,
                           isError: !!block.is_error,
-                          ...(images ? { images } : {})
+                          ...(images ? { images } : {}),
+                          ...withSavedFileDiffs(block.tool_use_id)
                         }
                       ]
                     }
@@ -2320,7 +2329,8 @@ async function parseJsonlFile(filePath: string): Promise<ChatMessage[]> {
                           toolUseId: block.tool_use_id,
                           toolResult: resultText,
                           isError: !!block.is_error,
-                          ...(images ? { images } : {})
+                          ...(images ? { images } : {}),
+                          ...withSavedFileDiffs(block.tool_use_id)
                         }
                       ]
                     }

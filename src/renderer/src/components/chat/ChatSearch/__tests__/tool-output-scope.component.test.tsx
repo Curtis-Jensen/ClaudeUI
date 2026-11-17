@@ -107,8 +107,9 @@ describe('FileEditBody', () => {
     const { container } = render(
       <FileEditBody {...bodyProps(view, b, result('betaupdated'), { hideToolInput: true })} />
     )
-    expect(counts(container, 'alphanew').all).toBeGreaterThan(0)
-    expect(counts(container, 'alphanew').excluded).toBe(counts(container, 'alphanew').all)
+    // The split diff is virtualized (no rows without layout), so only its
+    // scope is checked here: it must not be marked as tool output.
+    expect(container.textContent).toContain('a.ts')
     expect(container.querySelector('[data-search-scope="tool-output"]')).toBeNull()
   })
 
@@ -121,9 +122,7 @@ describe('FileEditBody', () => {
 
   it('input shown: the diff is searchable, the result text is marked', () => {
     const { container } = render(<FileEditBody {...bodyProps(view, b, result('betaupdated'))} />)
-    const diff = counts(container, 'alphanew')
-    expect(diff.all).toBeGreaterThan(0)
-    expect(diff.excluded).toBe(diff.all)
+    expect(container.textContent).toContain('a.ts')
     expect(counts(container, 'betaupdated')).toEqual({ all: 1, excluded: 0 })
   })
 })

@@ -14,6 +14,7 @@
  * toolUseId, or a gallery that could not place this diagram.
  */
 
+import { useResolvedTheme } from '../../lib/use-resolved-theme'
 import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react'
 import { Highlight, themes } from 'prism-react-renderer'
 import { useSessionStore } from '../../stores/session-store'
@@ -410,7 +411,7 @@ export const MermaidDiagram = memo(function MermaidDiagram({
   const [svgString, setSvgString] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  const appTheme = useSessionStore((s) => s.settings.theme)
+  const appTheme = useResolvedTheme()
   const mermaidThemeSetting = useSessionStore((s) => s.settings.mermaidTheme) ?? 'auto'
 
   const themeConfig = useMemo(

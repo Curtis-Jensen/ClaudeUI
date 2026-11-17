@@ -1,22 +1,47 @@
 import { useState } from 'react'
 import {
+  PROJECT_DRAG_TYPE,
   SESSION_DRAG_TYPE,
   createProjectFolder,
+  moveProjectToFolder,
   moveSessionToFolder,
   deleteProjectFolder,
   renameProjectFolder,
+  setProjectFolderEmoji,
   toggleProjectFolderOpen,
+  type FolderMode,
   type ProjectFolder
 } from '../../lib/project-folders'
 import { useContextMenu } from '../../hooks/useContextMenu'
 
+const FOLDER_EMOJIS = [
+  '📁',
+  '⭐',
+  '🔥',
+  '💼',
+  '🏠',
+  '🎮',
+  '🎵',
+  '🎨',
+  '🧪',
+  '🚀',
+  '🐛',
+  '📚',
+  '💡',
+  '🛠️',
+  '📦',
+  '🌱',
+  '🔒',
+  '❤️'
+]
+
 /** "+ Folder" in the Projects header: swaps itself for a name box until Enter or Escape. */
-export function NewFolderButton(): React.JSX.Element {
+export function NewFolderButton({ mode }: { mode: FolderMode }): React.JSX.Element {
   const [naming, setNaming] = useState(false)
   const [draft, setDraft] = useState('')
 
   const finish = (save: boolean): void => {
-    if (save) createProjectFolder(draft)
+    if (save) createProjectFolder(draft, mode)
     setDraft('')
     setNaming(false)
   }
@@ -65,6 +90,7 @@ export function ProjectFolderRow({
   const [renaming, setRenaming] = useState(false)
   const [draft, setDraft] = useState('')
   const [dropping, setDropping] = useState(false)
+  const [pickingEmoji, setPickingEmoji] = useState(false)
 
   const finishRename = (save: boolean): void => {
     if (save) renameProjectFolder(folder.id, draft)
@@ -82,7 +108,8 @@ export function ProjectFolderRow({
         }}
         onContextMenu={menu.open}
         onDragOver={(e) => {
-          if (!e.dataTransfer.types.includes(SESSION_DRAG_TYPE)) return
+          const types = e.dataTransfer.types
+          if (!types.includes(SESSION_DRAG_TYPE) && !types.includes(PROJECT_DRAG_TYPE)) return
           e.preventDefault()
           e.stopPropagation()
           e.dataTransfer.dropEffect = 'move'
@@ -90,13 +117,15 @@ export function ProjectFolderRow({
         }}
         onDragLeave={() => setDropping(false)}
         onDrop={(e) => {
+          const projectKey = e.dataTransfer.getData(PROJECT_DRAG_TYPE)
           const id = e.dataTransfer.getData(SESSION_DRAG_TYPE)
           setDropping(false)
-          if (!id) return
+          if (!projectKey && !id) return
           e.preventDefault()
-          // The plain list's drop would unfile the thread again.
+          // The plain list's drop would unfile it again.
           e.stopPropagation()
-          moveSessionToFolder(id, folder.id)
+          if (projectKey) moveProjectToFolder(projectKey, folder.id)
+          else moveSessionToFolder(id, folder.id)
         }}
         data-drop-target={dropping || undefined}
         style={{ padding: '0 5px' }}
@@ -113,15 +142,21 @@ export function ProjectFolderRow({
             <path d="M8 5l8 7-8 7z" />
           </svg>
         </span>
-        <svg
-          width="15"
-          height="15"
-          viewBox="0 0 24 24"
-          fill="currentColor"
-          className="shrink-0 text-accent"
-        >
-          <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
-        </svg>
+        {folder.emoji ? (
+          <span data-testid="ProjectFolder.emoji" className="shrink-0 text-[14px] leading-none">
+            {folder.emoji}
+          </span>
+        ) : (
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            className="shrink-0 text-accent"
+          >
+            <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
+          </svg>
+        )}
         {renaming ? (
           <input
             data-testid="ProjectFolder.renameInput"
@@ -170,6 +205,59 @@ export function ProjectFolderRow({
           >
             Rename folder...
           </button>
+          <button
+            role="menuitem"
+            data-testid="ProjectFolder.setEmoji"
+            className={itemClass}
+            onClick={() => setPickingEmoji((v) => !v)}
+          >
+            {folder.emoji ? 'Change emoji...' : 'Add emoji...'}
+          </button>
+          {pickingEmoji && (
+            <div className="px-3 py-1.5">
+              <div className="grid grid-cols-6 gap-1">
+                {FOLDER_EMOJIS.map((e) => (
+                  <button
+                    key={e}
+                    type="button"
+                    data-testid="ProjectFolder.emojiChoice"
+                    className="text-[16px] leading-none p-1 rounded hover:bg-bg-hover cursor-default"
+                    onClick={() => {
+                      setProjectFolderEmoji(folder.id, e)
+                      setPickingEmoji(false)
+                      menu.close()
+                    }}
+                  >
+                    {e}
+                  </button>
+                ))}
+              </div>
+              <input
+                data-testid="ProjectFolder.emojiInput"
+                placeholder="Or type / paste one"
+                onKeyDown={(e) => {
+                  if (e.key !== 'Enter') return
+                  setProjectFolderEmoji(folder.id, e.currentTarget.value)
+                  setPickingEmoji(false)
+                  menu.close()
+                }}
+                className="mt-1.5 w-full bg-transparent border-b border-accent text-[12px] text-text-primary outline-none placeholder:text-text-muted/50"
+              />
+            </div>
+          )}
+          {folder.emoji && (
+            <button
+              role="menuitem"
+              data-testid="ProjectFolder.removeEmoji"
+              className={itemClass}
+              onClick={() => {
+                setProjectFolderEmoji(folder.id, '')
+                menu.close()
+              }}
+            >
+              Remove emoji
+            </button>
+          )}
           <button
             role="menuitem"
             data-testid="ProjectFolder.delete"

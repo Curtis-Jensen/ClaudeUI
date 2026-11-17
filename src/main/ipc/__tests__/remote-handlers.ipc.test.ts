@@ -2108,6 +2108,7 @@ const PRE_PORT_REMOTE_CHANNELS = [
   'session:delete-project',
   'session:delete-session',
   'session:dequeue-message',
+  'session:explain-edit',
   'session:generate-commit-message',
   'session:generate-title',
   'session:get-engine-models',

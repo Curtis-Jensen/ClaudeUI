@@ -6,8 +6,8 @@
 export const THREAD_HUES = [27, 357, 300, 265, 225, 195, 165, 135, 50] as const
 
 /**
- * Black is a color you can pick but never a random assignment, so it is not in THREAD_HUES. It is
- * not a hue at all: every function below treats this value as "no color" and draws neutral grays.
+ * Black is not in THREAD_HUES because it is not a hue at all: every function below treats this
+ * value as "no color" and draws neutral grays. It is still handed out at random, see threadHue.
  */
 export const BLACK_HUE = -1
 
@@ -54,9 +54,15 @@ export function hashText(text: string): number {
   return h >>> 0
 }
 
-/** The hue of a thread: a pick from a set of well-spaced hues. */
+/**
+ * The color of a thread: a pick from every color the picker offers, plain black and the tinted
+ * blacks included. A second hash decides whether the pick lands on a black; when it does not, the
+ * thread keeps the hue it has always had, so only threads that now turn black change color.
+ */
 export function threadHue(sessionId: string | null | undefined): number {
   if (!sessionId) return DEFAULT_HUE
+  const pick = hashText(`${sessionId}:black`) % THREAD_COLORS.length
+  if (pick >= THREAD_HUES.length) return THREAD_COLORS[pick]
   return THREAD_HUES[hashText(sessionId) % THREAD_HUES.length]
 }
 

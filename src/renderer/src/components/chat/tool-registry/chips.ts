@@ -49,7 +49,19 @@ function countLines(text: string): number {
  * engine that supplies per-file diffs instead (opencode `apply_patch`, Codex
  * `fileChange`) sums those hunks' own +/- lines rather than a pair it never had.
  */
-function editDeltaChip(view: Extract<ToolView, { kind: 'fileEdit' }>): ToolChip | null {
+function editDeltaChips(view: Extract<ToolView, { kind: 'fileEdit' }>): ToolChip[] {
+  const counts = editDeltaCounts(view)
+  if (!counts) return []
+  // Two chips so the removed count can be red while the added count stays green.
+  return [
+    { label: `+${counts.added}`, tone: 'ok' },
+    { label: `−${counts.removed}`, tone: 'error' }
+  ]
+}
+
+function editDeltaCounts(
+  view: Extract<ToolView, { kind: 'fileEdit' }>
+): { added: number; removed: number } | null {
   if (view.files?.length) {
     let added = 0
     let removed = 0
@@ -68,14 +80,14 @@ function editDeltaChip(view: Extract<ToolView, { kind: 'fileEdit' }>): ToolChip 
       }
     }
     if (added === 0 && removed === 0) return null
-    return { label: `+${added} −${removed}`, tone: 'ok' }
+    return { added, removed }
   }
   // An empty before with a non-empty after is an insertion, and vice versa; a
   // pair that is empty on both sides carries no delta to state.
   if (!view.before && !view.after) return null
   const added = view.after ? countLines(view.after) : 0
   const removed = view.before ? countLines(view.before) : 0
-  return { label: `+${added} −${removed}`, tone: 'ok' }
+  return { added, removed }
 }
 
 /**
@@ -136,8 +148,7 @@ export function toolChips(kind: ToolKind, view: ToolView, result?: ToolResultBlo
     case 'fileEdit': {
       if (view.kind !== 'fileEdit') break
       if (!errored) {
-        const delta = editDeltaChip(view)
-        if (delta) chips.push(delta)
+        chips.push(...editDeltaChips(view))
       }
       const lang = languageChip(view.path || view.files?.[0]?.path)
       if (lang) chips.push(lang)

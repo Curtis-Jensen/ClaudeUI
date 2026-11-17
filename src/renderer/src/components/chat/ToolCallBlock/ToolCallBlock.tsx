@@ -12,6 +12,7 @@
  * SubagentMessages keep importing `ToolCallBlock` unchanged.
  */
 
+import { useResolvedTheme } from '../../../lib/use-resolved-theme'
 import { memo, useEffect, useState } from 'react'
 import type {
   ContentBlock,
@@ -24,6 +25,7 @@ import type {
 import { useSessionStore, useActiveSession } from '../../../stores/session-store'
 import { hostedMcpKind } from '../../../../../shared/tool-kinds'
 import { engineToolMap } from '../tool-registry/engine-tool-maps'
+import { asChangedFilesView } from '../tool-registry/hidden-shell'
 import { ToolCard } from '../tool-registry/ToolCard'
 import { bashMovedToBackground, latestNotification } from '../task-state'
 
@@ -69,7 +71,7 @@ export const ToolCallBlock = memo(function ToolCallBlock({
   const expandToolCalls = useSessionStore((s) => s.settings.expandToolCalls)
   const expandReadResults = useSessionStore((s) => s.settings.expandReadResults)
   const hideToolInput = useSessionStore((s) => s.settings.hideToolInput)
-  const theme = useSessionStore((s) => s.settings.theme)
+  const theme = useResolvedTheme()
   const toolOutputMaxChars = useSessionStore((s) => s.settings.toolOutputMaxChars)
 
   const toolUseId = block.toolUseId || ''
@@ -100,9 +102,15 @@ export const ToolCallBlock = memo(function ToolCallBlock({
   // issued the call (the session's engine unless a dispatch child's, see `engineId`).
   // hostedMcpKind (mermaid/mockup/mcp) is engine-independent and resolves first.
   const toolMap = engineToolMap(toolEngineId ?? sessionEngineId)
-  const kind = hostedMcpKind(block.toolName) ?? toolMap.kindOf(block.toolName)
-  const view = toolMap.normalize(kind, block.toolInput, result, block.toolName)
-  const toolDisplayName = toolMap.displayName(block.toolName)
+  // A finished shell command that changed files shows as those files' diffs,
+  // never as the command (hidden-shell.ts).
+  const commandKind = hostedMcpKind(block.toolName) ?? toolMap.kindOf(block.toolName)
+  const { kind, view } = asChangedFilesView(
+    commandKind,
+    toolMap.normalize(commandKind, block.toolInput, result, block.toolName)
+  )
+  const toolDisplayName =
+    kind !== commandKind ? 'Changed files' : toolMap.displayName(block.toolName)
 
   // Start file polling as soon as a background bash tool_use renders, independent of
   // expanded state. BackgroundBashOutput only mounts when expanded, but auto-expand

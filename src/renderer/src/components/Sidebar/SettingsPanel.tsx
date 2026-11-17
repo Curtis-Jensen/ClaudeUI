@@ -182,7 +182,7 @@ export function SettingsPanel(): React.JSX.Element {
           <div className="px-3 pt-2 pb-1">
             <div className="text-[11px] text-text-muted uppercase tracking-wider mb-1">Theme</div>
             <div className="flex items-center gap-1 mb-1 bg-bg-primary/50 rounded-md p-0.5">
-              {(['dark', 'light', 'monokai'] as const).map((t) => (
+              {(['system', 'dark', 'light', 'monokai'] as const).map((t) => (
                 <button
                   key={t}
                   onClick={() => updateSettings({ theme: t })}

@@ -48,10 +48,14 @@ describe('thread colors', () => {
 })
 
 describe('black', () => {
-  it('is pickable but never assigned at random', async () => {
-    const { BLACK_HUE, THREAD_COLORS, THREAD_HUES } = await import('../thread-theme')
+  it('is pickable and also handed out at random, tinted blacks too', async () => {
+    const { BLACK_HUE, THREAD_COLORS, THREAD_HUES, isBlack } = await import('../thread-theme')
     expect(THREAD_COLORS).toContain(BLACK_HUE)
     expect(THREAD_HUES as readonly number[]).not.toContain(BLACK_HUE)
+    const seen = Array.from({ length: 400 }, (_, i) => threadHue(`local_session-${i}-abc${i * 7}`))
+    expect(seen).toContain(BLACK_HUE)
+    expect(seen.filter((hue) => isBlack(hue) && hue !== BLACK_HUE).length).toBeGreaterThan(0)
+    expect(seen.some((hue) => !isBlack(hue))).toBe(true)
   })
 
   it('draws neutral grays with no hue in them', async () => {

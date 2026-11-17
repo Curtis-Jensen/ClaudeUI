@@ -116,7 +116,8 @@ function claudeNormalize(
       return {
         kind: 'command',
         command: inp.command != null ? String(inp.command) : '',
-        output: result?.toolResult
+        output: result?.toolResult,
+        ...(result?.fileDiffs && result.fileDiffs.length > 0 ? { files: result.fileDiffs } : {})
       }
 
     case 'fileEdit':

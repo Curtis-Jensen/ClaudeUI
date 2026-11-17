@@ -176,13 +176,24 @@ describe('MessageBubble', () => {
       expect(screen.getByText(/The answer is 42/)).toBeInTheDocument()
     })
 
-    it('renders tool_use blocks with tool name', () => {
+    it('renders file edit tool_use blocks with tool name', () => {
+      const msg = makeChatMessage({
+        role: 'assistant',
+        content: [
+          makeToolUseBlock('Edit', { file_path: '/foo.ts', old_string: 'a', new_string: 'b' })
+        ]
+      })
+      render(<MessageBubble message={msg} pendingApprovals={[]} isLastAssistant={true} />)
+      expect(screen.getByText('Edit')).toBeInTheDocument()
+    })
+
+    it('hides a file read (only code edits are shown)', () => {
       const msg = makeChatMessage({
         role: 'assistant',
         content: [makeToolUseBlock('Read', { file_path: '/foo.ts' })]
       })
       render(<MessageBubble message={msg} pendingApprovals={[]} isLastAssistant={true} />)
-      expect(screen.getByText('Read')).toBeInTheDocument()
+      expect(screen.queryByText('Read')).not.toBeInTheDocument()
     })
 
     it('hides hidden tool types (EnterPlanMode, TaskCreate, etc.)', () => {
@@ -223,12 +234,51 @@ describe('MessageBubble', () => {
       const msg = makeChatMessage({
         role: 'assistant',
         content: [
+          makeToolUseBlock('Write', { file_path: '/p/a.txt', content: 'hello' }, toolUseId),
+          makeToolResultBlock(toolUseId, 'ok')
+        ]
+      })
+      render(<MessageBubble message={msg} pendingApprovals={[]} isLastAssistant={true} />)
+      expect(screen.getByText('Write')).toBeInTheDocument()
+    })
+
+    it('hides a shell command that changed no files', () => {
+      const toolUseId = 'tool-bash'
+      const msg = makeChatMessage({
+        role: 'assistant',
+        content: [
           makeToolUseBlock('Bash', { command: 'echo hello' }, toolUseId),
           makeToolResultBlock(toolUseId, 'hello')
         ]
       })
       render(<MessageBubble message={msg} pendingApprovals={[]} isLastAssistant={true} />)
-      expect(screen.getByText('Bash')).toBeInTheDocument()
+      expect(screen.queryByText('Bash')).not.toBeInTheDocument()
+      expect(screen.queryByText('echo hello')).not.toBeInTheDocument()
+    })
+
+    it('shows a shell command that changed files as those files, not the command', () => {
+      const toolUseId = 'tool-sed'
+      const msg = makeChatMessage({
+        role: 'assistant',
+        content: [
+          makeToolUseBlock('Bash', { command: 'sed -i "" s/a/b/ /p/a.txt' }, toolUseId),
+          {
+            ...makeToolResultBlock(toolUseId, ''),
+            fileDiffs: [
+              {
+                path: '/p/a.txt',
+                patch: '--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-a\n+b\n',
+                changeType: 'update' as const,
+                additions: 1,
+                deletions: 1
+              }
+            ]
+          }
+        ]
+      })
+      render(<MessageBubble message={msg} pendingApprovals={[]} isLastAssistant={true} />)
+      expect(screen.getByText('Changed files')).toBeInTheDocument()
+      expect(screen.queryByText('Bash')).not.toBeInTheDocument()
     })
 
     it('renders TodoWrite tool as TodoToolBlock', () => {
@@ -246,7 +296,7 @@ describe('MessageBubble', () => {
       expect(container).toBeInTheDocument()
     })
 
-    it('renders Agent/Task tool as TaskCard', () => {
+    it('hides Agent/Task tools (only code edits are shown)', () => {
       const msg = makeChatMessage({
         role: 'assistant',
         content: [
@@ -254,29 +304,8 @@ describe('MessageBubble', () => {
         ]
       })
       render(<MessageBubble message={msg} pendingApprovals={[]} isLastAssistant={true} />)
-      expect(screen.getByText(/Search codebase/)).toBeInTheDocument()
-    })
-
-    it('hands a permission_denial on the task call to its TaskCard (ADR-085 §3)', () => {
-      const msg = makeChatMessage({
-        role: 'assistant',
-        content: [
-          makeToolUseBlock('Agent', { description: 'Search codebase' }, 'toolu_task_denied'),
-          {
-            type: 'permission_denial',
-            toolUseId: 'toolu_task_denied',
-            denialId: 'd-task',
-            source: 'mode',
-            reason: 'Plan mode is read-only — present a plan and call exit_plan to proceed'
-          },
-          makeToolUseBlock('Agent', { description: 'Other task' }, 'toolu_task_ok')
-        ]
-      })
-      render(<MessageBubble message={msg} pendingApprovals={[]} isLastAssistant={true} />)
-      const chips = screen.getAllByTestId('TaskCard.denialChip')
-      expect(chips).toHaveLength(1)
-      expect(chips[0]).toHaveTextContent('Blocked · mode')
-      expect(screen.getAllByTestId('TaskCard')).toHaveLength(2)
+      expect(screen.queryByText(/Search codebase/)).not.toBeInTheDocument()
+      expect(screen.queryByTestId('TaskCard')).not.toBeInTheDocument()
     })
   })
 
@@ -690,14 +719,14 @@ describe('MessageBubble — F20 rows', () => {
     expect(screen.getByTestId('ReviewResultCard')).toBeInTheDocument()
   })
 
-  it('lifts a Codex sleep tool_use out of the card shell into SleepRow', () => {
+  it('hides a Codex sleep tool_use (only code edits are shown)', () => {
     codex()
     const msg = makeChatMessage({
       role: 'assistant',
       content: [makeToolUseBlock('sleep', { durationMs: 2500 }, 'tu-sleep')]
     })
     render(<MessageBubble message={msg} pendingApprovals={[]} isLastAssistant={true} />)
-    expect(screen.getByTestId('SleepRow')).toBeInTheDocument()
+    expect(screen.queryByTestId('SleepRow')).not.toBeInTheDocument()
     expect(screen.queryByTestId('ToolCard')).not.toBeInTheDocument()
   })
 })

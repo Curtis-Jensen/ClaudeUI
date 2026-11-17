@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
+import { useResolvedTheme } from '../../../lib/use-resolved-theme'
 import { useActiveSession, useSessionStore } from '../../../stores/session-store'
 import { findSessionInfo } from '../../../lib/session-history-load'
 import { useSidebarCollapsed } from '../../SessionView'
@@ -254,8 +255,7 @@ export function TopBar({ hasContent }: { hasContent: boolean }): React.JSX.Eleme
    * anything that is not explicitly `light` is dark — a future ClaudeUI theme
    * lands on the safer side without a protocol change.
    */
-  const ideThemeKind: 'dark' | 'light' =
-    useSessionStore((s) => s.settings.theme) === 'light' ? 'light' : 'dark'
+  const ideThemeKind: 'dark' | 'light' = useResolvedTheme() === 'light' ? 'light' : 'dark'
   const isWeb = window.api?.platform === 'web'
   // Tooltip text only. `window.api.platform` is 'web' for every host OS, so the
   // UA hint is the only signal a browser client has about its keyboard. Both

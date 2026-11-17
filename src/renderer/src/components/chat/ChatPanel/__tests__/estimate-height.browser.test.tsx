@@ -97,6 +97,11 @@ describe('estimateMessageHeight vs rendered messages', () => {
         const { actual } = await measure(sample.message, column, zoom)
         // The column's own content width in the wrapper's units is `column`.
         const estimate = estimateMessageHeight(sample.message, column, options)
+        // A hidden shell command (hidden-shell.ts) renders nothing; the estimate must agree.
+        if (actual < 1) {
+          expect(estimate, `${sample.name}: rendered nothing`).toBe(0)
+          return
+        }
         const ratio = estimate / actual
         expect(
           ratio,

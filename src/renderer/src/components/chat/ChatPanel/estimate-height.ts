@@ -30,6 +30,7 @@ import type { ChatMessage, ContentBlock, EngineId } from '../../../../../shared/
 import { hostedMcpKind } from '../../../../../shared/tool-kinds'
 import type { ToolKind, ToolView } from '../../../../../shared/tool-kinds'
 import { engineToolMap } from '../tool-registry/engine-tool-maps'
+import { asChangedFilesView, isHiddenShellCall } from '../tool-registry/hidden-shell'
 import { detectOutputFormat } from '../../../lib/shell-highlight'
 import { groupSearchResult } from '../tool-registry/kinds/SearchBody'
 import { TERMINAL_BOX_MAX_HEIGHT } from '../terminal-box'
@@ -614,7 +615,10 @@ function toolHeight(
   const kind = hostedMcpKind(block.toolName) ?? toolMap.kindOf(block.toolName)
   let view: ToolView
   try {
-    view = toolMap.normalize(kind, block.toolInput, result, block.toolName)
+    view = asChangedFilesView(
+      kind,
+      toolMap.normalize(kind, block.toolInput, result, block.toolName)
+    ).view
   } catch {
     return CARD_HEADER + CARD_BORDER_IDLE
   }
@@ -736,6 +740,17 @@ function assistantHeight(message: ChatMessage, columnPx: number, o: EstimateOpti
   for (const block of message.content) {
     if (block.type === 'tool_use') {
       if (block.toolName && toolMap.hidden.has(block.toolName)) continue
+      // Approvals are not known here; a command waiting on one is briefly underestimated.
+      if (
+        block.toolName &&
+        isHiddenShellCall(
+          toolMap,
+          block.toolName,
+          results.get(block.toolUseId),
+          decided.has(block.toolUseId)
+        )
+      )
+        continue
       // Inside a multi-call group the cards sit in the group's p-2 box.
       group.push(
         toolHeight(block, results.get(block.toolUseId), decided.has(block.toolUseId), columnPx, o)

@@ -2157,6 +2157,8 @@ interface SessionAPI {
   answerHarnessUpgradePrompt(): Promise<HarnessUpgradePromptView>
   generateTitle(conversationText: string): Promise<string | null>
   generateCommitMessage(diff: string): Promise<string | null>
+  /** Plain-English Haiku summary of one edit, for a diff card's Explain button. */
+  explainEdit(fileName: string, before: string, after: string): Promise<string | null>
   writeCustomTitle(sessionId: string, projectKey: string, title: string): Promise<void>
   getPlanContent(routingId: string): Promise<string | null>
   getSessionLogPath(routingId: string): Promise<string | null>

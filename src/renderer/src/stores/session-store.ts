@@ -478,6 +478,8 @@ import { buildTodosFromMessages, buildSentFilesFromMessages } from '../../../sha
 import { sessionSpawnEffort, spawnAnnouncement } from '../lib/session-effort'
 
 export type ThemeId = 'dark' | 'light' | 'monokai'
+/** What the person picks: a theme, or "system" to follow the Mac's light/dark setting. */
+export type ThemePreference = ThemeId | 'system'
 
 /** See {@link AppSettings.newSessionModel}. */
 export type NewSessionModel = 'last-picked' | 'configured-default'
@@ -547,7 +549,7 @@ function pickSeedModel(
 }
 
 export interface AppSettings {
-  theme: ThemeId
+  theme: ThemePreference
   /**
    * The two agent-roster surfaces (ADR-073). The pill is the scroll-independent
    * door to the panel and stays while the session has any agent; the tab sits
@@ -722,7 +724,13 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultAutonomyMode: DEFAULT_AUTONOMY_MODE
 }
 
-export function applyTheme(theme: ThemeId): void {
+export function resolveTheme(theme: ThemePreference): ThemeId {
+  if (theme !== 'system') return theme
+  return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
+}
+
+export function applyTheme(preference: ThemePreference): void {
+  const theme = resolveTheme(preference)
   if (theme === 'dark') {
     delete document.documentElement.dataset.theme
   } else {
@@ -2175,6 +2183,8 @@ export interface SessionState {
   unhideSessions: (sessionIds: readonly string[]) => void
   hideProject: (projectKey: string) => void
   unhideProject: (projectKey: string) => void
+  /** Typing into a hidden chat (or a chat in a hidden project) brings it back into view. */
+  unhideForSession: (sessionId: string) => void
   deleteSession: (sessionId: string, projectKey: string, engineId?: EngineId) => Promise<void>
   deleteProject: (projectKey: string) => Promise<void>
 
@@ -3179,6 +3189,15 @@ export const useSessionStore = create<SessionState>((set) => ({
     const hiddenProjects = state.hiddenProjectKeys.filter((k) => k !== projectKey)
     patchLocalApp({ hiddenProjects })
     saveSessionConfig(state, { hiddenProjectKeys: hiddenProjects })
+  },
+
+  unhideForSession: (sessionId) => {
+    const { hiddenSessionIds, hiddenProjectKeys, directories, unhideSession, unhideProject } =
+      useSessionStore.getState()
+    if (hiddenSessionIds.length === 0 && hiddenProjectKeys.length === 0) return
+    unhideSession(sessionId)
+    const group = directories.find((g) => g.sessions.some((s) => s.sessionId === sessionId))
+    if (group?.projectKey) unhideProject(group.projectKey)
   },
 
   deleteSession: async (sessionId, projectKey, engineId) => {

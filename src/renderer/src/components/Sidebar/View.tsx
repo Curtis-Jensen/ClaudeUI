@@ -13,7 +13,9 @@ import { NavItem, SafeSvgIcon } from './NavItem'
 import { DirectoryItem } from './DirectoryItem'
 import { NewFolderButton, ProjectFolderRow } from './ProjectFolderRow'
 import {
+  PROJECT_DRAG_TYPE,
   SESSION_DRAG_TYPE,
+  moveProjectToFolder,
   moveSessionToFolder,
   useProjectFolders
 } from '../../lib/project-folders'
@@ -440,7 +442,7 @@ export function SidebarView(props: SidebarViewProps): React.JSX.Element {
               </span>
               {
                 <div className="flex items-center gap-2">
-                  {appMode === 'chat' && <NewFolderButton />}
+                  {appMode && <NewFolderButton mode={appMode} />}
                   <button
                     type="button"
                     data-testid="Sidebar.selectToggle"
@@ -539,18 +541,24 @@ export function SidebarView(props: SidebarViewProps): React.JSX.Element {
             )}
             <nav
               className="flex flex-col gap-px"
-              // Dropping a thread on the plain list takes it back out of its folder.
+              // Dropping a thread or project on the plain list takes it back out of its folder.
               onDragOver={(e) => {
-                if (appMode === 'chat' && e.dataTransfer.types.includes(SESSION_DRAG_TYPE)) {
+                const types = e.dataTransfer.types
+                if (
+                  appMode &&
+                  (types.includes(SESSION_DRAG_TYPE) || types.includes(PROJECT_DRAG_TYPE))
+                ) {
                   e.preventDefault()
                   e.dataTransfer.dropEffect = 'move'
                 }
               }}
               onDrop={(e) => {
+                const projectKey = e.dataTransfer.getData(PROJECT_DRAG_TYPE)
                 const id = e.dataTransfer.getData(SESSION_DRAG_TYPE)
-                if (appMode !== 'chat' || !id) return
+                if (!appMode || (!projectKey && !id)) return
                 e.preventDefault()
-                moveSessionToFolder(id, null)
+                if (projectKey) moveProjectToFolder(projectKey, null)
+                else moveSessionToFolder(id, null)
               }}
             >
               {(() => {
@@ -561,8 +569,11 @@ export function SidebarView(props: SidebarViewProps): React.JSX.Element {
                     (group) =>
                       showHidden || group.sessions.some((s) => !hiddenSessionSet.has(s.sessionId))
                   )
-                // Folders belong to the Chat tab only; the Code tab lists projects as it always did.
+                // Each tab keeps its own folders; with no tab (kid profile) there are none.
                 const inChat = appMode === 'chat'
+                const tabFolders = appMode
+                  ? projectFolders.folders.filter((folder) => folder.mode === appMode)
+                  : []
                 const renderGroup = (
                   group: DirectoryGroup,
                   opts?: { flat?: boolean; keySuffix?: string }
@@ -572,7 +583,8 @@ export function SidebarView(props: SidebarViewProps): React.JSX.Element {
                     <DirectoryItem
                       key={`${group.projectKey || group.cwd}${opts?.keySuffix ?? ''}`}
                       group={group}
-                      folders={inChat}
+                      folders={!!appMode}
+                      folderMode={appMode}
                       // Chat tab: loose chats list bare; a project folder inside the chat folder keeps its header.
                       flat={
                         opts?.flat ??
@@ -621,7 +633,7 @@ export function SidebarView(props: SidebarViewProps): React.JSX.Element {
                     />
                   )
                 }
-                if (!inChat) return <>{visibleGroups.map((group) => renderGroup(group))}</>
+                if (!appMode) return <>{visibleGroups.map((group) => renderGroup(group))}</>
 
                 const sessionFolder = (id: string): string | undefined =>
                   projectFolders.sessionAssignments[id]
@@ -643,7 +655,7 @@ export function SidebarView(props: SidebarViewProps): React.JSX.Element {
                     {looseGroups
                       .filter((group) => !projectFolder(group))
                       .map((group) => renderGroup(group))}
-                    {projectFolders.folders.map((folder) => {
+                    {tabFolders.map((folder) => {
                       const projects = looseGroups.filter(
                         (group) => projectFolder(group) === folder.id
                       )
@@ -662,7 +674,11 @@ export function SidebarView(props: SidebarViewProps): React.JSX.Element {
                         <ProjectFolderRow key={folder.id} folder={folder} count={count}>
                           {projects.map((group) => renderGroup(group))}
                           {threadGroups.map((group) =>
-                            renderGroup(group, { flat: true, keySuffix: `@${folder.id}` })
+                            renderGroup(group, {
+                              // The Code tab keeps each project's header over its filed threads.
+                              flat: inChat ? true : undefined,
+                              keySuffix: `@${folder.id}`
+                            })
                           )}
                         </ProjectFolderRow>
                       )

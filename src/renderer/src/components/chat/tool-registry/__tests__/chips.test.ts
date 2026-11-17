@@ -48,7 +48,7 @@ describe('toolChips — file kinds', () => {
       before: 'one\ntwo',
       after: 'one\ntwo\nthree'
     }
-    expect(labels(view, 'fileEdit', ok(''))).toEqual(['+3 −2', 'typescript'])
+    expect(labels(view, 'fileEdit', ok(''))).toEqual(['+3', '−2', 'typescript'])
   })
 
   it('prefers an engine-supplied additions/deletions count over counting hunks', () => {
@@ -59,7 +59,7 @@ describe('toolChips — file kinds', () => {
       after: '',
       files: [{ path: 'a.ts', patch: '+x\n-y\n-z', additions: 10, deletions: 3 }]
     }
-    expect(labels(view, 'fileEdit', ok(''))).toEqual(['+10 −3', 'typescript'])
+    expect(labels(view, 'fileEdit', ok(''))).toEqual(['+10', '−3', 'typescript'])
   })
 
   it('counts hunk lines when the engine supplies no totals, skipping file headers', () => {
@@ -70,7 +70,7 @@ describe('toolChips — file kinds', () => {
       after: '',
       files: [{ path: 'a.py', patch: '--- a/a.py\n+++ b/a.py\n+added\n-removed\n context' }]
     }
-    expect(labels(view, 'fileEdit', ok(''))).toEqual(['+1 −1', 'python'])
+    expect(labels(view, 'fileEdit', ok(''))).toEqual(['+1', '−1', 'python'])
   })
 
   it('drops the delta chip when the edit errored, keeping the language', () => {

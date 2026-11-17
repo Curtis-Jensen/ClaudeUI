@@ -94,12 +94,12 @@ pre .token.table {
 /* ── Light theme ── */
 [data-theme='light'] {
   --color-worktree-tint: rgb(90 47 168 / 0.1);
-  --color-bg-primary: #f0f0f0;
-  --color-bg-secondary: #dddfe3;
-  --color-bg-tertiary: #c5c8cf;
-  --color-bg-hover: #b8bbc3;
-  --color-bg-input: #d0d2d8;
-  --color-border: #9a9ea8;
+  --color-bg-primary: #ffffff;
+  --color-bg-secondary: #f3f4f6;
+  --color-bg-tertiary: #e5e7eb;
+  --color-bg-hover: #d9dce2;
+  --color-bg-input: #ffffff;
+  --color-border: #b4b8c2;
   --color-border-bright: #6b7080;
   --color-text-primary: #000000;
   --color-text-secondary: #1a1d24;

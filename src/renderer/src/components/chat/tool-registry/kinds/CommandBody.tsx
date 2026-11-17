@@ -14,6 +14,7 @@ import { OutputView } from '../../OutputView'
 import { ShellCode } from '../../ShellCode'
 import { trunc } from '../../ToolCallBlock/utils'
 import { LiveBashOutput } from './bash-output'
+import { FileDiffSections } from './FileEditBody'
 import { TOOL_OUTPUT_SCOPE } from '../../ChatSearch/search-scope'
 import type { KindBodyProps } from './types'
 
@@ -89,6 +90,16 @@ export function CommandBody({
                evidence that a bare `cat file.ts` printed that file's contents. */
             <OutputView text={text} command={command} />
           )}
+        </div>
+      )}
+
+      {/* The files the command changed on disk — the same diff cards as Edit. */}
+      {view.files && view.files.length > 0 && (
+        <div data-testid="CommandBody.files" className="px-3 py-2.5 border-t border-border">
+          <div className="text-[11px] text-text-secondary uppercase tracking-wider mb-1.5">
+            Files changed ({view.files.length})
+          </div>
+          <FileDiffSections files={view.files} />
         </div>
       )}
     </>

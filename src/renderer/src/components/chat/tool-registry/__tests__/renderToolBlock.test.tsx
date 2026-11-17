@@ -173,19 +173,19 @@ describe('renderToolBlock dispatch (via MessageBubble)', () => {
       expect(screen.getByTestId('AskUserQuestionBlock')).toBeInTheDocument()
     })
 
-    it('TodoWrite → TodoToolBlock', () => {
+    it('TodoWrite → nothing: only code edits are shown (hidden-shell.ts)', () => {
       renderMsg('TodoWrite', { todos: [] })
-      expect(screen.getByTestId('TodoToolBlock')).toBeInTheDocument()
+      expect(screen.queryByTestId('TodoToolBlock')).not.toBeInTheDocument()
     })
 
-    it('Task → TaskCard', () => {
+    it('Task → nothing: only code edits are shown (hidden-shell.ts)', () => {
       renderMsg('Task', { description: 'Search' })
-      expect(screen.getByTestId('TaskCard')).toBeInTheDocument()
+      expect(screen.queryByTestId('TaskCard')).not.toBeInTheDocument()
     })
 
-    it('Agent → TaskCard', () => {
+    it('Agent → nothing: only code edits are shown (hidden-shell.ts)', () => {
       renderMsg('Agent', { description: 'Analyze' })
-      expect(screen.getByTestId('TaskCard')).toBeInTheDocument()
+      expect(screen.queryByTestId('TaskCard')).not.toBeInTheDocument()
     })
   })
 
@@ -215,14 +215,14 @@ describe('renderToolBlock dispatch (via MessageBubble)', () => {
   })
 
   describe('passive kinds — route to ToolCallBlock', () => {
-    it('Bash → ToolCallBlock', () => {
+    it('Bash → nothing: shell commands are hidden unless they changed files (hidden-shell.ts)', () => {
       renderMsg('Bash', { command: 'ls' })
-      expect(screen.getByTestId('ToolCallBlock')).toBeInTheDocument()
+      expect(screen.queryByTestId('ToolCallBlock')).not.toBeInTheDocument()
     })
 
-    it('Read → ToolCallBlock', () => {
+    it('Read → nothing: only code edits are shown (hidden-shell.ts)', () => {
       renderMsg('Read', { file_path: '/foo.ts' })
-      expect(screen.getByTestId('ToolCallBlock')).toBeInTheDocument()
+      expect(screen.queryByTestId('ToolCallBlock')).not.toBeInTheDocument()
     })
 
     it('Edit → ToolCallBlock', () => {
@@ -235,29 +235,29 @@ describe('renderToolBlock dispatch (via MessageBubble)', () => {
       expect(screen.getByTestId('ToolCallBlock')).toBeInTheDocument()
     })
 
-    it('Glob → ToolCallBlock', () => {
+    it('Glob → nothing: only code edits are shown (hidden-shell.ts)', () => {
       renderMsg('Glob', { pattern: '**/*.ts' })
-      expect(screen.getByTestId('ToolCallBlock')).toBeInTheDocument()
+      expect(screen.queryByTestId('ToolCallBlock')).not.toBeInTheDocument()
     })
 
-    it('WebFetch → ToolCallBlock', () => {
+    it('WebFetch → nothing: only code edits are shown (hidden-shell.ts)', () => {
       renderMsg('WebFetch', { url: 'https://example.com' })
-      expect(screen.getByTestId('ToolCallBlock')).toBeInTheDocument()
+      expect(screen.queryByTestId('ToolCallBlock')).not.toBeInTheDocument()
     })
 
-    it('mcp__claude-ui__render_mermaid → ToolCallBlock (diagram kind)', () => {
+    it('mcp__claude-ui__render_mermaid → nothing: only code edits are shown (hidden-shell.ts)', () => {
       renderMsg('mcp__claude-ui__render_mermaid', { source: 'graph TD; A-->B' })
-      expect(screen.getByTestId('ToolCallBlock')).toBeInTheDocument()
+      expect(screen.queryByTestId('ToolCallBlock')).not.toBeInTheDocument()
     })
 
-    it('mcp__claude-ui-mockup__create_mockup → ToolCallBlock (mockup kind)', () => {
+    it('mcp__claude-ui-mockup__create_mockup → nothing: only code edits are shown (hidden-shell.ts)', () => {
       renderMsg('mcp__claude-ui-mockup__create_mockup', { title: 'test' })
-      expect(screen.getByTestId('ToolCallBlock')).toBeInTheDocument()
+      expect(screen.queryByTestId('ToolCallBlock')).not.toBeInTheDocument()
     })
 
-    it('unknown tool → ToolCallBlock', () => {
+    it('unknown tool → nothing: only code edits are shown (hidden-shell.ts)', () => {
       renderMsg('SomeRandomTool', { data: 'x' })
-      expect(screen.getByTestId('ToolCallBlock')).toBeInTheDocument()
+      expect(screen.queryByTestId('ToolCallBlock')).not.toBeInTheDocument()
     })
   })
 

@@ -89,6 +89,7 @@ import { PERSISTED_SESSIONS_DIR } from '../services/persisted-sessions-dir'
 import { query as sdkQuery } from '../sdk'
 import { queryClaudeModels } from '../services/claude-model-catalog'
 import { generateCommitMessage } from '../services/commit-message'
+import { generateEditSummary } from '../services/edit-summary'
 import { ensureHostTokenFresh } from '../sdk/host-token'
 import { logger } from '../services/logger'
 import { sharedProviderService } from '../shared-providers'
@@ -873,6 +874,13 @@ export function registerRemoteHandlers(
     capability: 'chat',
     kind: 'command',
     handler: async (diff: string) => generateCommitMessage(diff)
+  })
+  handleRemote({
+    channel: 'session:explain-edit',
+    capability: 'chat',
+    kind: 'command',
+    handler: async (fileName: string, before: string, after: string) =>
+      generateEditSummary(fileName, before, after)
   })
 
   handleRemote({

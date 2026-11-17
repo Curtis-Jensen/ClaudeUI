@@ -28,6 +28,7 @@ import { SpeechRail } from './SpeechRail'
 import { hostedMcpKind } from '../../../../shared/tool-kinds'
 import type { EngineToolMap } from '../../../../shared/tool-kinds'
 import { engineToolMap } from './tool-registry/engine-tool-maps'
+import { isHiddenShellCall } from './tool-registry/hidden-shell'
 import { useImageGallery } from '../shared/ImageViewer'
 import { BlobImage } from '../shared/BlobImage'
 import { isDrivableProvider, providerDisplayName } from '../../utils/sign-in-provider'
@@ -337,7 +338,7 @@ export const MessageBubble = memo(function MessageBubble({
         className="group/msg flex flex-col items-end gap-1 animate-fade-in"
       >
         <div
-          className="max-w-[85%] bg-bg-tertiary rounded-2xl px-4 py-2.5 text-[13px] text-text-primary leading-[1.6]"
+          className="max-w-[85%] bg-[color-mix(in_srgb,var(--thread-color)_65%,var(--color-bg-primary))] rounded-2xl rounded-br-none px-4 py-2.5 text-[13px] text-black leading-[1.6]"
           data-markdown-source={userMarkdown || undefined}
         >
           {message.hostInstruction && (
@@ -476,7 +477,12 @@ export const MessageBubble = memo(function MessageBubble({
   // Group consecutive tool_use blocks so we can wrap them in a bordered container
   type RenderItem =
     | { kind: 'tool_group'; blocks: { block: ToolUseBlock; index: number }[] }
-    | { kind: 'thinking'; block: Extract<ContentBlock, { type: 'thinking' }>; index: number }
+    | {
+        kind: 'thinking'
+        // Back-to-back thoughts (the tool calls between them are hidden) fold into one row.
+        blocks: Extract<ContentBlock, { type: 'thinking' }>[]
+        indices: number[]
+      }
     | { kind: 'other'; block: ContentBlock; index: number }
   const items: RenderItem[] = []
 
@@ -489,7 +495,17 @@ export const MessageBubble = memo(function MessageBubble({
       // a gap that would split a run of tool calls into two groups.
       b.type !== 'tool_review' &&
       b.type !== 'permission_denial' &&
-      !(b.type === 'tool_use' && b.toolName && toolMap.hidden.has(b.toolName))
+      !(b.type === 'tool_use' && b.toolName && toolMap.hidden.has(b.toolName)) &&
+      !(
+        b.type === 'tool_use' &&
+        b.toolName &&
+        isHiddenShellCall(
+          toolMap,
+          b.toolName,
+          resultMap.get(b.toolUseId),
+          approvalMap.has(b.toolUseId) || decisionMap.has(b.toolUseId)
+        )
+      )
   )
   for (let i = 0; i < visible.length; i++) {
     const block = visible[i]
@@ -502,7 +518,13 @@ export const MessageBubble = memo(function MessageBubble({
       }
     } else if (block.type === 'thinking') {
       if (!block.text && !activeThinking.some((slot) => slot.index === i)) continue
-      items.push({ kind: 'thinking', block, index: i })
+      const last = items[items.length - 1]
+      if (last?.kind === 'thinking') {
+        last.blocks.push(block)
+        last.indices.push(i)
+      } else {
+        items.push({ kind: 'thinking', blocks: [block], indices: [i] })
+      }
     } else {
       items.push({ kind: 'other', block, index: i })
     }
@@ -528,16 +550,24 @@ export const MessageBubble = memo(function MessageBubble({
         <SpeechRail messageId={message.id} />
         {items.map((item, gi) => {
           if (item.kind === 'thinking') {
-            const active = activeThinking.find((slot) => slot.index === item.index)
+            const active = activeThinking.find((slot) => item.indices.includes(slot.index))
+            const timed = item.blocks.filter((b) => b.durationMs != null)
             return (
               <ThinkingBlock
-                key={item.index}
-                text={item.block.text || ''}
+                key={item.indices[0]}
+                text={item.blocks
+                  .map((b) => b.text)
+                  .filter(Boolean)
+                  .join('\n\n')}
                 isActive={!!active}
                 // The item's own clock when the engine measured one; the message
                 // timestamp is only right for a thought that opened the message.
                 startedAt={active ? (active.startedAt ?? message.timestamp) : undefined}
-                durationMs={item.block.durationMs}
+                durationMs={
+                  timed.length > 0
+                    ? timed.reduce((sum, b) => sum + (b.durationMs ?? 0), 0)
+                    : undefined
+                }
               />
             )
           }
@@ -640,7 +670,7 @@ const ContentBlockView = memo(function ContentBlockView({
     if (!shown) return null
     return (
       <div
-        className="text-[13px] text-text-primary leading-[1.6]"
+        className="self-start max-w-[92%] bg-black rounded-2xl rounded-bl-none px-4 py-2.5 text-[13px] text-[var(--thread-color)] leading-[1.6]"
         data-markdown-source={shown}
         data-speech-text
       >

@@ -8,7 +8,7 @@
  *  - no diff (MultiEdit): generic JSON input + TerminalView result.
  */
 
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { FileEditBody } from '../kinds/FileEditBody'
 import type { KindBodyProps } from '../kinds/types'
@@ -33,6 +33,13 @@ vi.mock('../../../../lib/diff', () => ({
 vi.mock('../../TerminalView', () => ({
   TerminalView: (p: { text: string }) => <div data-testid="TerminalView" data-text={p.text} />
 }))
+
+// The Explain box asks the host for a Haiku summary as soon as the diff mounts.
+let explainEdit: ReturnType<typeof vi.fn>
+beforeEach(() => {
+  explainEdit = vi.fn(async () => 'Changed one value.')
+  ;(globalThis as any).window.api = { explainEdit }
+})
 
 function makeBlock(toolInput: Record<string, unknown>): ToolUseBlock {
   return { type: 'tool_use', toolUseId: 'tu-1', toolName: 'Edit', toolInput }
@@ -63,6 +70,26 @@ function baseProps(over: Partial<KindBodyProps>): KindBodyProps {
     ...over
   }
 }
+
+describe('FileEditBody — Explain summary', () => {
+  it('asks for the summary as soon as it mounts and shows it', async () => {
+    render(<FileEditBody {...baseProps({})} />)
+    expect(await screen.findByText('Changed one value.')).toBeInTheDocument()
+    expect(explainEdit).toHaveBeenCalledWith('/a.ts', 'old', 'new')
+  })
+
+  it('shows the retry button instead of crashing when the host has no explainEdit', async () => {
+    ;(globalThis as any).window.api = {}
+    render(<FileEditBody {...baseProps({})} />)
+    expect(await screen.findByText("Couldn't explain, try again")).toBeInTheDocument()
+  })
+
+  it('offers a retry when the summary fails', async () => {
+    explainEdit.mockResolvedValueOnce(null)
+    render(<FileEditBody {...baseProps({})} />)
+    expect(await screen.findByText("Couldn't explain, try again")).toBeInTheDocument()
+  })
+})
 
 describe('FileEditBody — single-diff (ROADMAP #11c)', () => {
   it('hasDiff success: ONE DiffViewer (Input) + TerminalView (Result)', () => {

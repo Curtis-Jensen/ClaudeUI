@@ -114,6 +114,7 @@ import type { ISession } from '../providers/ISession'
 import { prepareAndCreateSession, type CreateSessionArgs } from './create-session'
 import { freshClaudeModels, queryClaudeModels } from '../services/claude-model-catalog'
 import { generateCommitMessage } from '../services/commit-message'
+import { generateEditSummary } from '../services/edit-summary'
 import { safeHandler } from './safe-handler'
 import { handleIpc, unbindDesktopChannels } from './desktop-transport-binding'
 import { configCommands } from './config-commands'
@@ -313,6 +314,7 @@ const SESSION_IPC_CHANNELS = [
   'session:get-pi-model-catalog',
   'session:generate-title',
   'session:generate-commit-message',
+  'session:explain-edit',
   'session:write-custom-title',
   'session:get-plan-content',
   'session:get-session-log-path',
@@ -972,6 +974,15 @@ export function registerSessionIpc(authDeps: AuthCommandDeps): SessionManager {
     kind: 'command',
     handler: async (diff: string) => {
       return await generateCommitMessage(diff)
+    }
+  })
+
+  handleIpc({
+    channel: 'session:explain-edit',
+    capability: 'chat',
+    kind: 'command',
+    handler: async (fileName: string, before: string, after: string) => {
+      return await generateEditSummary(fileName, before, after)
     }
   })
 

@@ -24,9 +24,16 @@ export type SpeakOptions = {
   maxChars?: number
 }
 
+/** Words the voice gets wrong when it reads the letters: spelled on screen, respelled for the ear. */
+const PRONUNCIATIONS: Array<[RegExp, string]> = [[/\bYNAB\b/gi, 'Why nab']]
+
+function respellForVoice(text: string): string {
+  return PRONUNCIATIONS.reduce((said, [word, spoken]) => said.replace(word, spoken), text)
+}
+
 /** Plain sentences for the voice: no code, links, tables or markdown marks. */
 export function prepareSpeech(markdown: string, maxChars = AUTO_MAX_SPOKEN_CHARS): string {
-  const text = stripMoodTag(markdown)
+  const text = respellForVoice(stripMoodTag(markdown))
     .replace(/```[\s\S]*?(```|$)/g, ' ')
     .replace(/^\s*\|.*\|\s*$/gm, ' ')
     .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')

@@ -38,7 +38,9 @@ export type ToolKind =
 // ---------------------------------------------------------------------------
 
 export type ToolView =
-  | { kind: 'command'; command: string; output?: string; exitCode?: number }
+  // `files` is what the command changed on disk, when the engine measured it
+  // (Claude: a snapshot before and after — core/services/bash-file-changes.ts).
+  | { kind: 'command'; command: string; output?: string; exitCode?: number; files?: FileDiff[] }
   // `before`/`after` are empty when the engine emits a multi-edit shape that has
   // no single old/new pair (e.g. Claude MultiEdit). The body falls back to the
   // generic JSON view (dumping block.toolInput) in that case — preserving today's

@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, createContext, useContext } from 'react'
+import { useResolvedTheme } from '../lib/use-resolved-theme'
 import { Sidebar } from './Sidebar'
 import { MobileSidebarDrawer } from './MobileSidebarDrawer'
 import { ChatPanel } from './chat/ChatPanel'
@@ -173,13 +174,13 @@ export function SessionView(): React.JSX.Element {
   const rightPanel = useActiveSession((s) => s.rightPanel)
   // Each thread has its own color: the face, the window border and the background tint.
   const colorSessionId = useSessionStore((s) => s.activeSessionId)
-  const colorTheme = useSessionStore((s) => s.settings.theme)
+  const colorTheme = useResolvedTheme()
   useThreadTheme(colorSessionId, colorTheme)
   const sidebar = useResizablePanel('sidebarWidth', 240, 180, 480)
-  const taskPanel = useResizablePanel('taskPanelWidth', 400, 280, 700)
+  const taskPanel = useResizablePanel('taskPanelWidth', 400, 280, 9999)
   const gitPanel = useResizablePanel('gitPanelWidth', 450, 320, 9999)
-  const planPanel = useResizablePanel('planPanelWidth', 500, 350, 900)
-  const filesPanel = useResizablePanel('filesPanelWidth', 340, 260, 600)
+  const planPanel = useResizablePanel('planPanelWidth', 500, 350, 9999)
+  const filesPanel = useResizablePanel('filesPanelWidth', 340, 260, 9999)
   const mockupPanel = useResizablePanel('mockupPanelWidth', 500, 350, 9999)
   const terminalPanelOpen = useSessionStore((s) => s.terminalPanelOpen)
   const bottomPanel = useResizableBottomPanel('terminalPanelHeight', 120, 600)
@@ -225,10 +226,10 @@ export function SessionView(): React.JSX.Element {
     })
   }, [])
 
-  // Apply saved theme on mount
+  // Apply the saved theme on mount, and again when the Mac's light/dark changes under "System"
   useEffect(() => {
     applyTheme(useSessionStore.getState().settings.theme)
-  }, [])
+  }, [colorTheme])
 
   // `open-settings` is the app-wide deep-link channel (the composer's sandbox
   // pill, RemoteAccessModal, SettingsPanel's own button). This host answers it

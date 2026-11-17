@@ -5,9 +5,11 @@ import { useContextMenu } from '../../hooks/useContextMenu'
 import { useSessionStore } from '../../stores/session-store'
 import { setProjectName, useProjectNames } from '../../lib/project-names'
 import {
+  PROJECT_DRAG_TYPE,
   SESSION_DRAG_TYPE,
   moveProjectToFolder,
-  useProjectFolders
+  useProjectFolders,
+  type FolderMode
 } from '../../lib/project-folders'
 import { groupHeadIdOf, groupSessions } from '../../lib/session-links'
 import {
@@ -46,7 +48,8 @@ export const DirectoryItem = memo(function DirectoryItem({
   onToggleSelected,
   onToggleProject,
   flat = false,
-  folders = false
+  folders = false,
+  folderMode = 'chat'
 }: {
   group: DirectoryGroup
   expanded: boolean
@@ -86,8 +89,10 @@ export const DirectoryItem = memo(function DirectoryItem({
   onToggleProject?: (sessionIds: string[]) => void
   /** No folder header: the chats list directly, ungrouped (the Chat tab, where the folder is an implementation detail). */
   flat?: boolean
-  /** Chat tab only: thread rows can be dragged into a sidebar folder, and the menu can file the project. */
+  /** Thread rows can be dragged into a sidebar folder, and the menu can file the project. */
   folders?: boolean
+  /** Which tab's folders the menu offers. */
+  folderMode?: FolderMode
 }): React.JSX.Element {
   const menu = useContextMenu()
   const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -97,6 +102,7 @@ export const DirectoryItem = memo(function DirectoryItem({
   const nameKey = group.projectKey || group.cwd
   const displayName = projectNames[nameKey] ?? group.folderName
   const projectFolders = useProjectFolders()
+  const tabFolders = projectFolders.folders.filter((f) => f.mode === folderMode)
   const [renaming, setRenaming] = useState(false)
   const [nameDraft, setNameDraft] = useState('')
   const renameDoneRef = useRef(false)
@@ -168,6 +174,16 @@ export const DirectoryItem = memo(function DirectoryItem({
           onClick={handleClick}
           onDoubleClick={handleDoubleClick}
           onContextMenu={menu.open}
+          // Drag the project onto a folder to file it there.
+          draggable={folders && !renaming}
+          onDragStart={
+            folders
+              ? (e) => {
+                  e.dataTransfer.setData(PROJECT_DRAG_TYPE, nameKey)
+                  e.dataTransfer.effectAllowed = 'move'
+                }
+              : undefined
+          }
           style={{ padding: '0 5px' }}
           className={`flex items-center gap-2.5 h-8 rounded-md text-[13px] cursor-default transition-colors text-text-secondary hover:text-text-primary hover:bg-bg-hover ${hidden ? 'opacity-45 italic' : ''}`}
         >
@@ -398,10 +414,10 @@ export const DirectoryItem = memo(function DirectoryItem({
           >
             Rename project...
           </button>
-          {folders && projectFolders.folders.length > 0 && (
+          {folders && tabFolders.length > 0 && (
             <div role="separator" className="h-px bg-border my-1" />
           )}
-          {(folders ? projectFolders.folders : []).map((folder) => {
+          {(folders ? tabFolders : []).map((folder) => {
             const here = projectFolders.assignments[nameKey] === folder.id
             return (
               <button

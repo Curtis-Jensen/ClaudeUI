@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { useResolvedTheme } from '../../lib/use-resolved-theme'
 import { AnsiUp } from 'ansi_up'
 import { useSessionStore, type ThemeId } from '../../stores/session-store'
 import { useStickToBottom } from '../../hooks/useStickToBottom'
@@ -17,7 +18,7 @@ function terminalColors(theme: ThemeId): { bg: string; fg: string } {
 }
 
 export function TerminalView({ text, maxHeight }: Props): React.JSX.Element {
-  const theme = useSessionStore((s) => s.settings.theme)
+  const theme = useResolvedTheme()
   const { bg, fg } = terminalColors(theme)
   // The pre is the scroll box and its max-height keeps its own size fixed, so
   // the growing thing is the wrapper inside it.
