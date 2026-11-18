@@ -6,7 +6,7 @@
  */
 
 /** How long the host waits for the model before giving up; the card counts down from it. */
-export const EDIT_SUMMARY_TIMEOUT_MS = 45_000
+export const EDIT_SUMMARY_TIMEOUT_MS = 90_000
 
 /** The question the card asks on open; also what the first turn of a history is recorded as. */
 export const EDIT_EXPLAIN_QUESTION = 'Explain this edit.'

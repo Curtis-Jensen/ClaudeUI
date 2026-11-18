@@ -178,6 +178,9 @@ import {
 // on cwd change / a model reload) pick them up without an app restart.
 const MODELS_CACHE_TTL_MS = 2 * 60_000
 
+/** How long one step of title generation may take before it is given up on. */
+const TITLE_STEP_TIMEOUT_MS = 30_000
+
 /**
  * Ask cli.js to generate a session title for the given conversation text.
  *
@@ -190,9 +193,27 @@ const MODELS_CACHE_TTL_MS = 2 * 60_000
  */
 async function generateTitle(conversationText: string): Promise<string | null> {
   const abort = new AbortController()
-  logger.debug('generateTitle', `request: ${conversationText.length} chars`)
+  const startedAt = Date.now()
+  const step = (what: string): void =>
+    logger.warn('generateTitle', `${what} after ${Date.now() - startedAt}ms`)
+  // A step that never answers used to leave the sidebar on "generating..." forever;
+  // give each one a deadline and say which one stalled.
+  const withDeadline = <T>(what: string, work: Promise<T>): Promise<T> => {
+    let timer: ReturnType<typeof setTimeout>
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${what} timed out`)), TITLE_STEP_TIMEOUT_MS)
+    })
+    return Promise.race([work, deadline]).finally(() => clearTimeout(timer))
+  }
+  step(`request: ${conversationText.length} chars`)
 
-  await ensureHostTokenFresh()
+  try {
+    await withDeadline('ensureHostTokenFresh', ensureHostTokenFresh())
+  } catch (err) {
+    logger.error('generateTitle', 'Token refresh failed or stalled', err)
+    return null
+  }
+  step('token fresh')
   const q = sdkQuery({
     prompt: '',
     options: {
@@ -212,10 +233,14 @@ async function generateTitle(conversationText: string): Promise<string | null> {
         opts?: { persist?: boolean }
       ): Promise<{ title?: string | null } | unknown>
     }
-    const result = await handle.generateSessionTitle(
-      `Start the title with one emoji that fits the topic.\n\n${conversationText}`,
-      { persist: false }
+    const result = await withDeadline(
+      'generateSessionTitle',
+      handle.generateSessionTitle(
+        `Start the title with one emoji that fits the topic.\n\n${conversationText}`,
+        { persist: false }
+      )
     )
+    step(`cli.js answered ${JSON.stringify(result)}`)
     const title =
       result && typeof result === 'object' && 'title' in result
         ? (result as { title?: string | null }).title
@@ -223,10 +248,10 @@ async function generateTitle(conversationText: string): Promise<string | null> {
     let trimmed = typeof title === 'string' ? title.trim() : ''
     if (trimmed.length >= 2) {
       if (!/^\p{Extended_Pictographic}/u.test(trimmed)) trimmed = `💬 ${trimmed}`
-      logger.debug('generateTitle', `title: ${trimmed}`)
+      step(`title: ${trimmed}`)
       return trimmed
     }
-    logger.debug('generateTitle', 'cli.js returned no usable title')
+    step('cli.js returned no usable title')
     return null
   } catch (err) {
     logger.error('generateTitle', 'Failed to generate title', err)
@@ -987,9 +1012,10 @@ export function registerSessionIpc(authDeps: AuthCommandDeps): SessionManager {
       before: string,
       after: string,
       question: string,
-      history: EditChatTurn[]
+      history: EditChatTurn[],
+      cwd: string
     ) => {
-      return await generateEditSummary(fileName, before, after, question, history)
+      return await generateEditSummary(fileName, before, after, question, history, cwd)
     }
   })
 

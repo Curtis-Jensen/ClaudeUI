@@ -10,7 +10,8 @@
  * opening the app log.
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { useActiveSession } from '../../../../stores/session-store'
 import {
   EDIT_EXPLAIN_QUESTION,
   EDIT_SUMMARY_TIMEOUT_MS,
@@ -77,6 +78,10 @@ export function ExplainEdit({
   const [log, setLog] = useState<string[]>([])
   const [now, setNow] = useState(() => Date.now())
   const [draft, setDraft] = useState('')
+  // The session's project folder: the explainer may read it for context. A ref, so
+  // switching sessions while a card is open does not re-ask.
+  const cwdRef = useRef('')
+  cwdRef.current = useActiveSession((s) => s.cwd)
 
   useEffect(() => {
     if (!asking) return
@@ -117,7 +122,16 @@ export function ExplainEdit({
     // `Promise.resolve().then` so a synchronous throw (an older preload with no
     // `explainEdit`) lands in the error state instead of crashing the card.
     Promise.resolve()
-      .then(() => window.api.explainEdit(path, before, after, current.question, current.history))
+      .then(() =>
+        window.api.explainEdit(
+          path,
+          before,
+          after,
+          current.question,
+          current.history,
+          cwdRef.current
+        )
+      )
       .then((result) => {
         const lines = [sent, ...(result?.log ?? []), stamp('got the answer')]
         if (result?.text) {

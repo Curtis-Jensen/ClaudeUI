@@ -2164,7 +2164,9 @@ interface SessionAPI {
     before: string,
     after: string,
     question: string,
-    history: EditChatTurn[]
+    history: EditChatTurn[],
+    /** The session's project folder: the explainer may read it (read-only) for context. */
+    cwd: string
   ): Promise<EditSummaryResult>
   writeCustomTitle(sessionId: string, projectKey: string, title: string): Promise<void>
   getPlanContent(routingId: string): Promise<string | null>

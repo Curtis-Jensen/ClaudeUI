@@ -885,8 +885,9 @@ export function registerRemoteHandlers(
       before: string,
       after: string,
       question: string,
-      history: EditChatTurn[]
-    ) => generateEditSummary(fileName, before, after, question, history)
+      history: EditChatTurn[],
+      cwd: string
+    ) => generateEditSummary(fileName, before, after, question, history, cwd)
   })
 
   handleRemote({

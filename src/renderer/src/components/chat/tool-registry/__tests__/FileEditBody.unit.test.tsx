@@ -10,6 +10,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, fireEvent, render, screen } from '@testing-library/react'
+import { useSessionStore } from '@renderer/stores/session-store'
 import { FileEditBody } from '../kinds/FileEditBody'
 import { patchToBeforeAfter } from '../kinds/ExplainEdit'
 import type { KindBodyProps } from '../kinds/types'
@@ -43,7 +44,13 @@ beforeEach(() => {
     error: null,
     log: ['+0.1s message: assistant']
   }))
-  ;(globalThis as any).window.api = { explainEdit }
+  ;(globalThis as any).window.api = {
+    explainEdit,
+    // createNewSession persists its config and slash commands.
+    saveSessionConfig: vi.fn(),
+    saveSlashCommands: vi.fn()
+  }
+  useSessionStore.setState({ activeSessionId: null })
 })
 
 function makeBlock(toolInput: Record<string, unknown>): ToolUseBlock {
@@ -80,7 +87,22 @@ describe('FileEditBody — Explain summary', () => {
   it('asks for the summary as soon as it mounts and shows it', async () => {
     render(<FileEditBody {...baseProps({})} />)
     expect(await screen.findByText('Changed one value.')).toBeInTheDocument()
-    expect(explainEdit).toHaveBeenCalledWith('/a.ts', 'old', 'new', 'Explain this edit.', [])
+    expect(explainEdit).toHaveBeenCalledWith('/a.ts', 'old', 'new', 'Explain this edit.', [], '')
+  })
+
+  it("passes the active session's project folder so the explainer can read it", async () => {
+    useSessionStore.getState().createNewSession('s1', '/projects/app')
+    useSessionStore.setState({ activeSessionId: 's1' })
+    render(<FileEditBody {...baseProps({})} />)
+    await screen.findByText('Changed one value.')
+    expect(explainEdit).toHaveBeenCalledWith(
+      '/a.ts',
+      'old',
+      'new',
+      'Explain this edit.',
+      [],
+      '/projects/app'
+    )
   })
 
   it('answers a follow-up question, sending the earlier turns as history', async () => {
@@ -95,9 +117,14 @@ describe('FileEditBody — Explain summary', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Ask' }))
 
     expect(await screen.findByText('Because it never changes.')).toBeInTheDocument()
-    expect(explainEdit).toHaveBeenLastCalledWith('/a.ts', 'old', 'new', 'Why const?', [
-      { question: 'Explain this edit.', answer: 'Changed one value.' }
-    ])
+    expect(explainEdit).toHaveBeenLastCalledWith(
+      '/a.ts',
+      'old',
+      'new',
+      'Why const?',
+      [{ question: 'Explain this edit.', answer: 'Changed one value.' }],
+      ''
+    )
     // The first answer and the question stay on screen above the new answer.
     expect(screen.getByText('Why const?')).toBeInTheDocument()
     expect(screen.getByText('Changed one value.')).toBeInTheDocument()
@@ -149,23 +176,23 @@ describe('FileEditBody — Explain summary', () => {
     it('counts down to the timeout', () => {
       render(<FileEditBody {...baseProps({})} />)
       expect(screen.getByTestId('FileEditBody.explain.loading')).toHaveTextContent(
-        '45s until timeout'
+        '90s until timeout'
       )
       act(() => {
         vi.advanceTimersByTime(3000)
       })
       expect(screen.getByTestId('FileEditBody.explain.loading')).toHaveTextContent(
-        '42s until timeout'
+        '87s until timeout'
       )
     })
 
     it('gives up on its own if the app never answers', () => {
       render(<FileEditBody {...baseProps({})} />)
       act(() => {
-        vi.advanceTimersByTime(50_000)
+        vi.advanceTimersByTime(95_000)
       })
       expect(screen.getByTestId('FileEditBody.explain.error')).toHaveTextContent(
-        'No reply from the app after 50s'
+        'No reply from the app after 95s'
       )
       expect(screen.getByTestId('FileEditBody.explain.log')).toHaveTextContent('gave up waiting')
     })
@@ -280,7 +307,7 @@ describe('FileEditBody — multi-file diffs (opencode apply_patch view.files)', 
     // The patch's context and changed lines become the before and after text.
     fireEvent.click(starts[0])
     expect(await screen.findByText('Changed one value.')).toBeInTheDocument()
-    expect(explainEdit).toHaveBeenCalledWith('a.ts', 'old', 'new', 'Explain this edit.', [])
+    expect(explainEdit).toHaveBeenCalledWith('a.ts', 'old', 'new', 'Explain this edit.', [], '')
   })
 
   it('one file: starts on open like a single edit', async () => {
