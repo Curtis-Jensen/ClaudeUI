@@ -1,4 +1,4 @@
-import type { EditChatTurn, EditSummaryResult } from './edit-summary'
+import type { EditChatTurn, EditExplainContext, EditSummaryResult } from './edit-summary'
 import type { ResolvedCapabilities } from './model-capabilities'
 import type {
   IdeAvailability,
@@ -2165,8 +2165,8 @@ interface SessionAPI {
     after: string,
     question: string,
     history: EditChatTurn[],
-    /** The session's project folder: the explainer may read it (read-only) for context. */
-    cwd: string
+    /** The session the card belongs to: what the explainer forks and may read (read-only). */
+    context: EditExplainContext
   ): Promise<EditSummaryResult>
   writeCustomTitle(sessionId: string, projectKey: string, title: string): Promise<void>
   getPlanContent(routingId: string): Promise<string | null>

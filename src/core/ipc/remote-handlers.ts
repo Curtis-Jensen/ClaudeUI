@@ -90,7 +90,7 @@ import { query as sdkQuery } from '../sdk'
 import { queryClaudeModels } from '../services/claude-model-catalog'
 import { generateCommitMessage } from '../services/commit-message'
 import { generateEditSummary } from '../services/edit-summary'
-import type { EditChatTurn } from '../../shared/edit-summary'
+import type { EditChatTurn, EditExplainContext } from '../../shared/edit-summary'
 import { ensureHostTokenFresh } from '../sdk/host-token'
 import { logger } from '../services/logger'
 import { sharedProviderService } from '../shared-providers'
@@ -886,8 +886,8 @@ export function registerRemoteHandlers(
       after: string,
       question: string,
       history: EditChatTurn[],
-      cwd: string
-    ) => generateEditSummary(fileName, before, after, question, history, cwd)
+      context: EditExplainContext
+    ) => generateEditSummary(fileName, before, after, question, history, context)
   })
 
   handleRemote({

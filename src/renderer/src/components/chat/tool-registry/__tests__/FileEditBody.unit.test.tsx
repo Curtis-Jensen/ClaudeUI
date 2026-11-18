@@ -14,7 +14,11 @@ import { useSessionStore } from '@renderer/stores/session-store'
 import { FileEditBody } from '../kinds/FileEditBody'
 import { patchToBeforeAfter } from '../kinds/ExplainEdit'
 import type { KindBodyProps } from '../kinds/types'
-import type { ContentBlock } from '../../../../../../shared/types'
+import type { ContentBlock, SessionStatus } from '../../../../../../shared/types'
+import { makeSessionStatus } from '@test/factories/messages'
+
+/** What the explainer is handed when no session is open. */
+const NO_SESSION = { cwd: '', sessionId: null, modelId: null }
 
 type ToolUseBlock = Extract<ContentBlock, { type: 'tool_use' }>
 type ToolResultBlock = Extract<ContentBlock, { type: 'tool_result' }>
@@ -87,22 +91,49 @@ describe('FileEditBody — Explain summary', () => {
   it('asks for the summary as soon as it mounts and shows it', async () => {
     render(<FileEditBody {...baseProps({})} />)
     expect(await screen.findByText('Changed one value.')).toBeInTheDocument()
-    expect(explainEdit).toHaveBeenCalledWith('/a.ts', 'old', 'new', 'Explain this edit.', [], '')
-  })
-
-  it("passes the active session's project folder so the explainer can read it", async () => {
-    useSessionStore.getState().createNewSession('s1', '/projects/app')
-    useSessionStore.setState({ activeSessionId: 's1' })
-    render(<FileEditBody {...baseProps({})} />)
-    await screen.findByText('Changed one value.')
     expect(explainEdit).toHaveBeenCalledWith(
       '/a.ts',
       'old',
       'new',
       'Explain this edit.',
       [],
-      '/projects/app'
+      NO_SESSION
     )
+  })
+
+  /** Opens a session the way the app does and makes it the active one. */
+  function openSession(status: Partial<SessionStatus>): void {
+    const store = useSessionStore.getState()
+    store.createNewSession('s1', '/projects/app')
+    useSessionStore.setState({
+      activeSessionId: 's1',
+      sessions: {
+        ...useSessionStore.getState().sessions,
+        s1: { ...useSessionStore.getState().sessions.s1, status: makeSessionStatus(status) }
+      }
+    })
+  }
+
+  it("hands the explainer the Claude session's id, folder and model to fork and read", async () => {
+    openSession({ sessionId: 'abc-123', cwd: '/projects/app', engineId: 'claude' })
+    render(<FileEditBody {...baseProps({})} />)
+    await screen.findByText('Changed one value.')
+    expect(explainEdit).toHaveBeenCalledWith('/a.ts', 'old', 'new', 'Explain this edit.', [], {
+      cwd: '/projects/app',
+      sessionId: 'abc-123',
+      modelId: 'claude-sonnet-4-6'
+    })
+  })
+
+  it('does not offer another engine’s session to fork, only its folder', async () => {
+    openSession({ sessionId: 'pi-session', engineId: 'pi' })
+    render(<FileEditBody {...baseProps({})} />)
+    await screen.findByText('Changed one value.')
+    expect(explainEdit).toHaveBeenCalledWith('/a.ts', 'old', 'new', 'Explain this edit.', [], {
+      cwd: '/projects/app',
+      sessionId: null,
+      modelId: null
+    })
   })
 
   it('answers a follow-up question, sending the earlier turns as history', async () => {
@@ -123,7 +154,7 @@ describe('FileEditBody — Explain summary', () => {
       'new',
       'Why const?',
       [{ question: 'Explain this edit.', answer: 'Changed one value.' }],
-      ''
+      NO_SESSION
     )
     // The first answer and the question stay on screen above the new answer.
     expect(screen.getByText('Why const?')).toBeInTheDocument()
@@ -307,7 +338,14 @@ describe('FileEditBody — multi-file diffs (opencode apply_patch view.files)', 
     // The patch's context and changed lines become the before and after text.
     fireEvent.click(starts[0])
     expect(await screen.findByText('Changed one value.')).toBeInTheDocument()
-    expect(explainEdit).toHaveBeenCalledWith('a.ts', 'old', 'new', 'Explain this edit.', [], '')
+    expect(explainEdit).toHaveBeenCalledWith(
+      'a.ts',
+      'old',
+      'new',
+      'Explain this edit.',
+      [],
+      NO_SESSION
+    )
   })
 
   it('one file: starts on open like a single edit', async () => {

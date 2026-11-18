@@ -478,7 +478,7 @@ export function createWebSocketApi(connection: RemoteConnection): ClaudeAPI {
       connection.invoke('session:generate-title', conversationText) as Promise<string | null>,
     generateCommitMessage: (diff) =>
       connection.invoke('session:generate-commit-message', diff) as Promise<string | null>,
-    explainEdit: (fileName, before, after, question, history, cwd) =>
+    explainEdit: (fileName, before, after, question, history, context) =>
       connection.invoke(
         'session:explain-edit',
         fileName,
@@ -486,7 +486,7 @@ export function createWebSocketApi(connection: RemoteConnection): ClaudeAPI {
         after,
         question,
         history,
-        cwd
+        context
       ) as Promise<EditSummaryResult>,
 
     writeCustomTitle: (sessionId, projectKey, title) =>

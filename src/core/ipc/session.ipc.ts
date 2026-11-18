@@ -115,7 +115,7 @@ import { prepareAndCreateSession, type CreateSessionArgs } from './create-sessio
 import { freshClaudeModels, queryClaudeModels } from '../services/claude-model-catalog'
 import { generateCommitMessage } from '../services/commit-message'
 import { generateEditSummary } from '../services/edit-summary'
-import type { EditChatTurn } from '../../shared/edit-summary'
+import type { EditChatTurn, EditExplainContext } from '../../shared/edit-summary'
 import { safeHandler } from './safe-handler'
 import { handleIpc, unbindDesktopChannels } from './desktop-transport-binding'
 import { configCommands } from './config-commands'
@@ -1013,9 +1013,9 @@ export function registerSessionIpc(authDeps: AuthCommandDeps): SessionManager {
       after: string,
       question: string,
       history: EditChatTurn[],
-      cwd: string
+      context: EditExplainContext
     ) => {
-      return await generateEditSummary(fileName, before, after, question, history, cwd)
+      return await generateEditSummary(fileName, before, after, question, history, context)
     }
   })
 

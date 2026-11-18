@@ -11,6 +11,21 @@ export const EDIT_SUMMARY_TIMEOUT_MS = 90_000
 /** The question the card asks on open; also what the first turn of a history is recorded as. */
 export const EDIT_EXPLAIN_QUESTION = 'Explain this edit.'
 
+/**
+ * What the explainer inherits from the session whose card is open. With a
+ * `sessionId` (a Claude session) it forks that conversation, so it knows what
+ * the agent that made the edit knew, on the session's own model; without one it
+ * is a fresh read-only helper started in `cwd`.
+ */
+export interface EditExplainContext {
+  /** The session's project folder; '' when unknown (no file access). */
+  cwd: string
+  /** The Claude session to fork; null for a new session or another engine. */
+  sessionId: string | null
+  /** The session's model id, so the explainer is as capable as the agent; null = default. */
+  modelId: string | null
+}
+
 /** One finished question and its answer, sent back as history with a follow-up. */
 export interface EditChatTurn {
   question: string

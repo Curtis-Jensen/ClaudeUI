@@ -340,8 +340,9 @@ const api: ClaudeAPI = {
     after: string,
     question: string,
     history: unknown[],
-    cwd: string
-  ) => ipcRenderer.invoke('session:explain-edit', fileName, before, after, question, history, cwd),
+    context: unknown
+  ) =>
+    ipcRenderer.invoke('session:explain-edit', fileName, before, after, question, history, context),
   writeCustomTitle: (sessionId: string, projectKey: string, title: string) =>
     ipcRenderer.invoke('session:write-custom-title', sessionId, projectKey, title),
   getPlanContent: (routingId: string) => ipcRenderer.invoke('session:get-plan-content', routingId),

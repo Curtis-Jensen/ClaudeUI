@@ -15,7 +15,8 @@ import { useActiveSession } from '../../../../stores/session-store'
 import {
   EDIT_EXPLAIN_QUESTION,
   EDIT_SUMMARY_TIMEOUT_MS,
-  type EditChatTurn
+  type EditChatTurn,
+  type EditExplainContext
 } from '../../../../../../shared/edit-summary'
 
 /** The host aborts at the timeout; this side waits a little longer, then gives up itself. */
@@ -78,10 +79,18 @@ export function ExplainEdit({
   const [log, setLog] = useState<string[]>([])
   const [now, setNow] = useState(() => Date.now())
   const [draft, setDraft] = useState('')
-  // The session's project folder: the explainer may read it for context. A ref, so
-  // switching sessions while a card is open does not re-ask.
-  const cwdRef = useRef('')
-  cwdRef.current = useActiveSession((s) => s.cwd)
+  // The session this card belongs to: the explainer forks it (a Claude session) and
+  // may read its project folder. A ref, so switching sessions while a card is open
+  // does not re-ask.
+  const sessionCwd = useActiveSession((s) => s.cwd)
+  const status = useActiveSession((s) => s.status)
+  const contextRef = useRef<EditExplainContext>({ cwd: '', sessionId: null, modelId: null })
+  const isClaude = status.engineId === 'claude'
+  contextRef.current = {
+    cwd: sessionCwd,
+    sessionId: isClaude ? status.sessionId : null,
+    modelId: isClaude ? (status.model?.modelId ?? null) : null
+  }
 
   useEffect(() => {
     if (!asking) return
@@ -129,7 +138,7 @@ export function ExplainEdit({
           after,
           current.question,
           current.history,
-          cwdRef.current
+          contextRef.current
         )
       )
       .then((result) => {
