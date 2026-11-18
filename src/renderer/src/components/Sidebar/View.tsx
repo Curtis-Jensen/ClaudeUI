@@ -148,8 +148,6 @@ export function SidebarView(props: SidebarViewProps): React.JSX.Element {
     revealedHidden,
     showHiddenProjects,
     hasAnyArchived = false,
-    showArchived = true,
-    onShowArchivedToggle,
     selecting = false,
     selectedIds = NO_SELECTION,
     selectedHiddenCount = 0,
@@ -463,21 +461,6 @@ export function SidebarView(props: SidebarViewProps): React.JSX.Element {
                   >
                     {selecting ? 'Done' : 'Select'}
                   </button>
-                  {hasAnyArchived && (
-                    <button
-                      data-testid="Sidebar.showArchivedToggle"
-                      aria-pressed={showArchived}
-                      onClick={onShowArchivedToggle}
-                      className="text-[10px] text-text-muted hover:text-text-primary transition-colors cursor-default"
-                      title={
-                        showArchived
-                          ? 'Showing archived chats too. Click to show only chats that are not archived.'
-                          : 'Showing only chats that are not archived. Click to include archived chats.'
-                      }
-                    >
-                      {showArchived ? 'Hide archived' : 'Show archived'}
-                    </button>
-                  )}
                 </div>
               }
             </div>

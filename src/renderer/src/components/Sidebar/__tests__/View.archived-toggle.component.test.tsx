@@ -77,35 +77,9 @@ function renderView(overrides: Partial<SidebarViewProps> = {}): SidebarViewProps
 afterEach(cleanup)
 
 describe('SidebarView archived toggle', () => {
-  it('is not offered when no chat is archived', () => {
-    renderView({ hasAnyArchived: false })
-    expect(screen.queryByTestId('Sidebar.showArchivedToggle')).toBeNull()
-  })
-
-  it('offers hiding archived chats while they are shown', () => {
-    renderView({ hasAnyArchived: true, showArchived: true })
-    const toggle = screen.getByTestId('Sidebar.showArchivedToggle')
-    expect(toggle).toHaveTextContent('Hide archived')
-    expect(toggle).toHaveAttribute('aria-pressed', 'true')
-  })
-
-  it('offers bringing them back while they are hidden', () => {
-    renderView({ hasAnyArchived: true, showArchived: false })
-    const toggle = screen.getByTestId('Sidebar.showArchivedToggle')
-    expect(toggle).toHaveTextContent('Show archived')
-    expect(toggle).toHaveAttribute('aria-pressed', 'false')
-  })
-
-  it('a click hands the toggle upstream', () => {
-    const onShowArchivedToggle = vi.fn()
-    renderView({ hasAnyArchived: true, onShowArchivedToggle })
-    fireEvent.click(screen.getByTestId('Sidebar.showArchivedToggle'))
-    expect(onShowArchivedToggle).toHaveBeenCalledTimes(1)
-  })
-
-  it('no longer has a project-wide hidden toggle in the header', () => {
+  it('has no archived or project-wide hidden toggle in the header', () => {
     renderView({ hasAnyArchived: true, hasHiddenProjects: true })
-    expect(screen.getByTestId('Sidebar.showArchivedToggle')).toBeInTheDocument()
+    expect(screen.queryByTestId('Sidebar.showArchivedToggle')).toBeNull()
     expect(screen.queryByTestId('Sidebar.showHiddenToggle')).toBeNull()
   })
 
