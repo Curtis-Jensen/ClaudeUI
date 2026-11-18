@@ -670,7 +670,7 @@ const ContentBlockView = memo(function ContentBlockView({
     if (!shown) return null
     return (
       <div
-        className="self-start max-w-[92%] bg-[var(--bubble-assistant,black)] rounded-2xl rounded-bl-none px-4 py-2.5 text-[13px] text-[var(--thread-color)] leading-[1.6]"
+        className="self-start max-w-[92%] bg-[var(--bubble-assistant,black)] rounded-2xl rounded-bl-none px-4 py-2.5 text-[13px] text-[var(--bubble-assistant-text,var(--thread-color))] leading-[1.6]"
         data-markdown-source={shown}
         data-speech-text
       >

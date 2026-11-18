@@ -126,11 +126,19 @@ export function threadSurfaces(hue: number): Record<string, string> {
  */
 export function threadBubbles(hue: number): Record<string, string> {
   if (hue === BLACK_HUE) {
-    return { '--bubble-assistant': 'hsl(0 0% 16%)', '--bubble-user': 'hsl(0 0% 82%)' }
+    return {
+      '--bubble-assistant': 'hsl(0 0% 16%)',
+      '--bubble-assistant-text': '#ffffff',
+      '--bubble-user': 'hsl(0 0% 82%)'
+    }
   }
   if (isBlack(hue)) {
     const h = baseHue(hue)
-    return { '--bubble-assistant': `hsl(${h} 50% 17%)`, '--bubble-user': threadAccent(hue) }
+    return {
+      '--bubble-assistant': `hsl(${h} 50% 17%)`,
+      '--bubble-assistant-text': '#ffffff',
+      '--bubble-user': threadAccent(hue)
+    }
   }
   return {}
 }
