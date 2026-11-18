@@ -228,8 +228,8 @@ function buildTestApi(bridge: TestIpcBridge): ClaudeAPI {
     generateTitle: (conversationText) =>
       ipcRenderer.invoke('session:generate-title', conversationText),
     generateCommitMessage: (diff) => ipcRenderer.invoke('session:generate-commit-message', diff),
-    explainEdit: (fileName, before, after) =>
-      ipcRenderer.invoke('session:explain-edit', fileName, before, after),
+    explainEdit: (fileName, before, after, question, history) =>
+      ipcRenderer.invoke('session:explain-edit', fileName, before, after, question, history),
     writeCustomTitle: (sessionId, projectKey, title) =>
       ipcRenderer.invoke('session:write-custom-title', sessionId, projectKey, title),
     getPlanContent: (routingId) => ipcRenderer.invoke('session:get-plan-content', routingId),

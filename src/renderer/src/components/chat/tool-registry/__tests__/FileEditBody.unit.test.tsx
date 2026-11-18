@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { FileEditBody } from '../kinds/FileEditBody'
 import type { KindBodyProps } from '../kinds/types'
 import type { ContentBlock } from '../../../../../../shared/types'
@@ -79,14 +79,34 @@ describe('FileEditBody — Explain summary', () => {
   it('asks for the summary as soon as it mounts and shows it', async () => {
     render(<FileEditBody {...baseProps({})} />)
     expect(await screen.findByText('Changed one value.')).toBeInTheDocument()
-    expect(explainEdit).toHaveBeenCalledWith('/a.ts', 'old', 'new')
+    expect(explainEdit).toHaveBeenCalledWith('/a.ts', 'old', 'new', 'Explain this edit.', [])
+  })
+
+  it('answers a follow-up question, sending the earlier turns as history', async () => {
+    explainEdit.mockResolvedValueOnce({ text: 'Changed one value.', error: null, log: [] })
+    explainEdit.mockResolvedValueOnce({ text: 'Because it never changes.', error: null, log: [] })
+    render(<FileEditBody {...baseProps({})} />)
+    await screen.findByText('Changed one value.')
+
+    fireEvent.change(screen.getByTestId('FileEditBody.explain.input'), {
+      target: { value: 'Why const?' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Ask' }))
+
+    expect(await screen.findByText('Because it never changes.')).toBeInTheDocument()
+    expect(explainEdit).toHaveBeenLastCalledWith('/a.ts', 'old', 'new', 'Why const?', [
+      { question: 'Explain this edit.', answer: 'Changed one value.' }
+    ])
+    // The first answer and the question stay on screen above the new answer.
+    expect(screen.getByText('Why const?')).toBeInTheDocument()
+    expect(screen.getByText('Changed one value.')).toBeInTheDocument()
   })
 
   it('shows the host trace under Details when the summary arrives', async () => {
     render(<FileEditBody {...baseProps({})} />)
     await screen.findByText('Changed one value.')
     const log = screen.getByTestId('FileEditBody.explain.log')
-    expect(log).toHaveTextContent('renderer: asked the app')
+    expect(log).toHaveTextContent('renderer: asked: Explain this edit.')
     expect(log).toHaveTextContent('+0.1s message: assistant')
     expect(log).toHaveTextContent('renderer: got the answer')
   })
@@ -95,7 +115,7 @@ describe('FileEditBody — Explain summary', () => {
     ;(globalThis as any).window.api = {}
     render(<FileEditBody {...baseProps({})} />)
     expect(await screen.findByTestId('FileEditBody.explain.error')).toHaveTextContent(
-      "Couldn't explain:"
+      "Couldn't answer:"
     )
     expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument()
     expect(screen.getByTestId('FileEditBody.explain.log')).toHaveTextContent('call failed')

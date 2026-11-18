@@ -90,6 +90,7 @@ import { query as sdkQuery } from '../sdk'
 import { queryClaudeModels } from '../services/claude-model-catalog'
 import { generateCommitMessage } from '../services/commit-message'
 import { generateEditSummary } from '../services/edit-summary'
+import type { EditChatTurn } from '../../shared/edit-summary'
 import { ensureHostTokenFresh } from '../sdk/host-token'
 import { logger } from '../services/logger'
 import { sharedProviderService } from '../shared-providers'
@@ -879,8 +880,13 @@ export function registerRemoteHandlers(
     channel: 'session:explain-edit',
     capability: 'chat',
     kind: 'command',
-    handler: async (fileName: string, before: string, after: string) =>
-      generateEditSummary(fileName, before, after)
+    handler: async (
+      fileName: string,
+      before: string,
+      after: string,
+      question: string,
+      history: EditChatTurn[]
+    ) => generateEditSummary(fileName, before, after, question, history)
   })
 
   handleRemote({

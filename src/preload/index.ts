@@ -334,8 +334,13 @@ const api: ClaudeAPI = {
     ipcRenderer.invoke('session:generate-title', conversationText),
   generateCommitMessage: (diff: string) =>
     ipcRenderer.invoke('session:generate-commit-message', diff),
-  explainEdit: (fileName: string, before: string, after: string) =>
-    ipcRenderer.invoke('session:explain-edit', fileName, before, after),
+  explainEdit: (
+    fileName: string,
+    before: string,
+    after: string,
+    question: string,
+    history: unknown[]
+  ) => ipcRenderer.invoke('session:explain-edit', fileName, before, after, question, history),
   writeCustomTitle: (sessionId: string, projectKey: string, title: string) =>
     ipcRenderer.invoke('session:write-custom-title', sessionId, projectKey, title),
   getPlanContent: (routingId: string) => ipcRenderer.invoke('session:get-plan-content', routingId),

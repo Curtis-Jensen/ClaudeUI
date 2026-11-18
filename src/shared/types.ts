@@ -1,4 +1,4 @@
-import type { EditSummaryResult } from './edit-summary'
+import type { EditChatTurn, EditSummaryResult } from './edit-summary'
 import type { ResolvedCapabilities } from './model-capabilities'
 import type {
   IdeAvailability,
@@ -2159,7 +2159,13 @@ interface SessionAPI {
   generateTitle(conversationText: string): Promise<string | null>
   generateCommitMessage(diff: string): Promise<string | null>
   /** Plain-English Haiku summary of one edit, for a diff card's Explain button. */
-  explainEdit(fileName: string, before: string, after: string): Promise<EditSummaryResult>
+  explainEdit(
+    fileName: string,
+    before: string,
+    after: string,
+    question: string,
+    history: EditChatTurn[]
+  ): Promise<EditSummaryResult>
   writeCustomTitle(sessionId: string, projectKey: string, title: string): Promise<void>
   getPlanContent(routingId: string): Promise<string | null>
   getSessionLogPath(routingId: string): Promise<string | null>
