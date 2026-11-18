@@ -3,7 +3,7 @@ import { useActiveSession, useSessionStore } from '../../stores/session-store'
 import { fileBasename } from '../../../../shared/file-mime'
 import { resolveSentFilePath } from '../../../../shared/sent-file-path'
 import { isViewablePath } from '../../../../shared/file-view'
-import { deriveChatFiles } from './derive-chat-files'
+import { deriveChatFiles, type ChatFileRow } from './derive-chat-files'
 import { FileViewer } from './FileViewer'
 
 interface Props {
@@ -11,6 +11,8 @@ interface Props {
 }
 
 const KIND_LABEL = { sent: 'Sent', artifact: 'Artifact', written: 'Created', upload: 'Uploaded' }
+
+const PLAYABLE = /\.html?$/i
 
 const BTN =
   'text-[11px] px-2 py-0.5 rounded border border-border text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors cursor-pointer'
@@ -22,6 +24,10 @@ export function FilesPanel({ style }: Props): React.JSX.Element {
   const activeSessionId = useSessionStore((s) => s.activeSessionId)
   const closeFilesPanel = useSessionStore((s) => s.closeFilesPanel)
   const rows = useMemo(() => deriveChatFiles(messages), [messages])
+  // The playable file (a game or page) stays on top; notes, memory and the rest fold away.
+  const playable = useMemo(() => rows.filter((r) => PLAYABLE.test(r.path)), [rows])
+  const others = useMemo(() => rows.filter((r) => !PLAYABLE.test(r.path)), [rows])
+  const [showOthers, setShowOthers] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
   // Absolute path of the file shown in the in-app viewer, or null for the list.
   const [viewing, setViewing] = useState<string | null>(null)
@@ -66,53 +72,70 @@ export function FilesPanel({ style }: Props): React.JSX.Element {
             here.
           </div>
         )}
-        {rows.map((row) => {
-          const abs = resolveSentFilePath(cwd, row.path)
-          return (
-            <div key={row.path} className="px-4 py-2.5 border-b border-border">
-              <div className="flex items-baseline gap-2">
-                <span className="flex-1 min-w-0 text-[12px] text-text-primary truncate" title={abs}>
-                  {fileBasename(row.path)}
-                </span>
-                <span className="text-[10px] text-text-muted uppercase tracking-wide">
-                  {KIND_LABEL[row.kind]}
-                </span>
-              </div>
-              <div className="mt-1.5 flex items-center gap-1.5">
-                <button
-                  data-testid="FilesPanel.view"
-                  className={`${BTN} disabled:opacity-40 disabled:cursor-default disabled:hover:bg-transparent`}
-                  disabled={!isViewablePath(row.path)}
-                  title={
-                    isViewablePath(row.path)
-                      ? undefined
-                      : 'This file type can only be opened externally'
-                  }
-                  onClick={() => setViewing(abs)}
-                >
-                  Open internally
-                </button>
-                <button
-                  data-testid="FilesPanel.open"
-                  className={BTN}
-                  onClick={() => void run(abs, window.api?.openPath)}
-                >
-                  Open externally
-                </button>
-                <button className={BTN} onClick={() => void run(abs, window.api?.showInFolder)}>
-                  Show in folder
-                </button>
-                {row.url && (
-                  <a className={BTN} href={row.url} target="_blank" rel="noopener noreferrer">
-                    Artifact link
-                  </a>
-                )}
-              </div>
-              {errors[abs] && <div className="mt-1 text-[11px] text-error">{errors[abs]}</div>}
-            </div>
-          )
-        })}
+        {playable.map((row) => renderRow(row, true))}
+        {others.length > 0 && (
+          <button
+            data-testid="FilesPanel.toggleOthers"
+            className="w-full text-left px-4 py-2.5 border-b border-border text-[12px] text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors cursor-pointer"
+            onClick={() => setShowOthers((v) => !v)}
+          >
+            {showOthers ? '▾' : '▸'} Other files <span className="font-mono">{others.length}</span>
+          </button>
+        )}
+        {showOthers && others.map((row) => renderRow(row, false))}
       </div>
     </div>
   )
+
+  function renderRow(row: ChatFileRow, primary: boolean): React.JSX.Element {
+    const abs = resolveSentFilePath(cwd, row.path)
+    return (
+      <div
+        key={row.path}
+        className={`px-4 border-b border-border ${primary ? 'py-4 bg-bg-hover/40' : 'py-2.5'}`}
+      >
+        <div className="flex items-baseline gap-2">
+          <span
+            className={`flex-1 min-w-0 text-text-primary truncate ${primary ? 'text-[14px] font-medium' : 'text-[12px]'}`}
+            title={abs}
+          >
+            {primary && '▶ '}
+            {fileBasename(row.path)}
+          </span>
+          <span className="text-[10px] text-text-muted uppercase tracking-wide">
+            {KIND_LABEL[row.kind]}
+          </span>
+        </div>
+        <div className="mt-1.5 flex items-center gap-1.5">
+          <button
+            data-testid="FilesPanel.view"
+            className={`${BTN} disabled:opacity-40 disabled:cursor-default disabled:hover:bg-transparent`}
+            disabled={!isViewablePath(row.path)}
+            title={
+              isViewablePath(row.path) ? undefined : 'This file type can only be opened externally'
+            }
+            onClick={() => setViewing(abs)}
+          >
+            Open internally
+          </button>
+          <button
+            data-testid="FilesPanel.open"
+            className={BTN}
+            onClick={() => void run(abs, window.api?.openPath)}
+          >
+            Open externally
+          </button>
+          <button className={BTN} onClick={() => void run(abs, window.api?.showInFolder)}>
+            Show in folder
+          </button>
+          {row.url && (
+            <a className={BTN} href={row.url} target="_blank" rel="noopener noreferrer">
+              Artifact link
+            </a>
+          )}
+        </div>
+        {errors[abs] && <div className="mt-1 text-[11px] text-error">{errors[abs]}</div>}
+      </div>
+    )
+  }
 }

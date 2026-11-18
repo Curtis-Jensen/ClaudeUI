@@ -8,10 +8,12 @@ import {
 import { peekUpcomingChatId, resolveLook, useThreadLooks } from './thread-look'
 import {
   THREAD_ACCENT_VAR,
+  THREAD_BUBBLE_VARS,
   THREAD_CREAM_VAR,
   THREAD_INK_VAR,
   THREAD_SURFACE_VARS,
   threadAccent,
+  threadBubbles,
   threadFaceInk,
   threadSurfaces
 } from './thread-theme'
@@ -39,8 +41,12 @@ export function useThreadTheme(sessionId: string | null, theme: string): void {
     const face = threadFaceInk(hue)
     root.style.setProperty(THREAD_INK_VAR, face.ink)
     root.style.setProperty(THREAD_CREAM_VAR, face.cream)
+    for (const name of THREAD_BUBBLE_VARS) root.style.removeProperty(name)
     if (theme === 'dark') {
       for (const [name, value] of Object.entries(threadSurfaces(hue))) {
+        root.style.setProperty(name, value)
+      }
+      for (const [name, value] of Object.entries(threadBubbles(hue))) {
         root.style.setProperty(name, value)
       }
     } else {

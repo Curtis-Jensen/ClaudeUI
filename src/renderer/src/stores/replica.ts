@@ -135,6 +135,7 @@ export function startReplica(): () => void {
   // it calls it on every `sync-full` rather than once at page load. A second tap
   // would fold every event twice.
   if (tapOff) return stopReplica
+  trackLastViewedSession()
   tapOff = onSyncAnyEvent((event) => {
     // The CLASSIFICATION decides, not a per-event guess: a channel with no
     // snapshot field has nothing to fold into, and its transient store writer
@@ -501,10 +502,41 @@ function resolveActiveSessionId(
 ): string | null {
   const local = useSessionStore.getState().activeSessionId
   return (
-    [isResync ? local : null, snapshot.activeSessionId, ...(snapshot.recentSessionIds ?? [])].find(
-      (id): id is string => !!id && !!sessions[id]
-    ) ?? null
+    [
+      isResync ? local : null,
+      readLastViewedSessionId(),
+      snapshot.activeSessionId,
+      ...(snapshot.recentSessionIds ?? [])
+    ].find((id): id is string => !!id && !!sessions[id]) ?? null
   )
+}
+
+// `recentSessionIds` only reorders when a session is created, so it cannot say
+// which one was last on screen. Remember that locally and prefer it at launch.
+const LAST_VIEWED_SESSION_KEY = 'lastViewedSessionId'
+
+function readLastViewedSessionId(): string | null {
+  try {
+    return localStorage.getItem(LAST_VIEWED_SESSION_KEY)
+  } catch {
+    return null
+  }
+}
+
+// Subscribed from startReplica(), not at import time: this module and the session store import
+// each other, so `useSessionStore` is not initialized yet while this file is first evaluated.
+let lastViewedUnsub: (() => void) | null = null
+
+function trackLastViewedSession(): void {
+  if (lastViewedUnsub) return
+  lastViewedUnsub = useSessionStore.subscribe((state, prev) => {
+    if (!state.activeSessionId || state.activeSessionId === prev.activeSessionId) return
+    try {
+      localStorage.setItem(LAST_VIEWED_SESSION_KEY, state.activeSessionId)
+    } catch {
+      // storage unavailable: launch falls back to the newest session
+    }
+  })
 }
 
 // ---------------------------------------------------------------------------

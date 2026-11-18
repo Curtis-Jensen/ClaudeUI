@@ -7,7 +7,7 @@ import {
   textureCss
 } from '../../../lib/app-texture'
 import { assignedTexture, resolveLook, useThreadLooks } from '../../../lib/thread-look'
-import { THREAD_HUES, threadHue } from '../../../lib/thread-theme'
+import { baseHue, THREAD_HUES, threadHue } from '../../../lib/thread-theme'
 import { useSessionStore } from '../../../stores/session-store'
 import { LookPicker } from '../LookPicker'
 
@@ -55,7 +55,7 @@ describe('LookPicker', () => {
     // jsdom drops background-image values this long (the stars picture is ~80KB), so the color is checked on the generated CSS.
     const css = textureCss('stars', threadHue(ID))!
     expect(css.image).toContain('data:image/svg+xml')
-    expect(decodeURIComponent(css.image)).toContain(`hsl(${threadHue(ID)} `)
+    expect(decodeURIComponent(css.image)).toContain(`hsl(${baseHue(threadHue(ID))} `)
     expect(tile).toBeInTheDocument()
   })
 

@@ -119,6 +119,25 @@ export function threadSurfaces(hue: number): Record<string, string> {
 }
 
 /**
+ * Chat bubble fills for the black schemes, whose backgrounds are too close to the usual bubble
+ * colors (a black reply bubble vanishes on a black page). A reply is a lifted charcoal, tinted
+ * for a tinted black; your own message is a bright fill that the black text reads well on.
+ * Empty for every other color: the bubbles keep their normal look there.
+ */
+export function threadBubbles(hue: number): Record<string, string> {
+  if (hue === BLACK_HUE) {
+    return { '--bubble-assistant': 'hsl(0 0% 16%)', '--bubble-user': 'hsl(0 0% 82%)' }
+  }
+  if (isBlack(hue)) {
+    const h = baseHue(hue)
+    return { '--bubble-assistant': `hsl(${h} 50% 17%)`, '--bubble-user': threadAccent(hue) }
+  }
+  return {}
+}
+
+export const THREAD_BUBBLE_VARS = Object.keys(threadBubbles(BLACK_HUE))
+
+/**
  * A chat row filled with a deep shade of its thread's color. The text on it is white, so it reads
  * on every color and is easy on the eyes in dark mode; the text colors are set as the row's own
  * variables, so everything drawn inside the row (labels, icons) follows without being touched.

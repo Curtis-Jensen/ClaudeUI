@@ -338,7 +338,7 @@ export const MessageBubble = memo(function MessageBubble({
         className="group/msg flex flex-col items-end gap-1 animate-fade-in"
       >
         <div
-          className="max-w-[85%] bg-[color-mix(in_srgb,var(--thread-color)_65%,var(--color-bg-primary))] rounded-2xl rounded-br-none px-4 py-2.5 text-[13px] text-black leading-[1.6]"
+          className="max-w-[85%] bg-[var(--bubble-user,color-mix(in_srgb,var(--thread-color)_65%,var(--color-bg-primary)))] rounded-2xl rounded-br-none px-4 py-2.5 text-[13px] text-black leading-[1.6]"
           data-markdown-source={userMarkdown || undefined}
         >
           {message.hostInstruction && (
@@ -670,7 +670,7 @@ const ContentBlockView = memo(function ContentBlockView({
     if (!shown) return null
     return (
       <div
-        className="self-start max-w-[92%] bg-black rounded-2xl rounded-bl-none px-4 py-2.5 text-[13px] text-[var(--thread-color)] leading-[1.6]"
+        className="self-start max-w-[92%] bg-[var(--bubble-assistant,black)] rounded-2xl rounded-bl-none px-4 py-2.5 text-[13px] text-[var(--thread-color)] leading-[1.6]"
         data-markdown-source={shown}
         data-speech-text
       >
