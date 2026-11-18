@@ -32,6 +32,29 @@ type SidebarSessionData = {
   selectedEngineId: EngineId
 }
 
+/** Auto-naming tries this many times before it falls back to a slug of the first message. */
+const TITLE_ATTEMPTS = 2
+
+/** Where the repair thread works: this ClaudeUI copy's source. */
+const TITLE_REPAIR_CWD = '/Users/curtisjensen/Tools/claudeui-trial/src'
+
+/** Set once a repair thread has been started, so a failing one cannot start another. */
+let repairThreadStarted = false
+
+function titleRepairPrompt(sessionId: string, elapsedMs: number): string {
+  return [
+    'ClaudeUI auto-naming just failed twice in a row (timeout or error) for thread',
+    `${sessionId}, ${Math.round(elapsedMs / 1000)}s in total, so it fell back to a slug of the first message.`,
+    'Please find out why and fix it.',
+    '',
+    'Start with generateTitle in src/core/ipc/session.ipc.ts (it now logs `generateTitle` lines at warn level',
+    'with elapsed ms and times out each step after 30s) and handleRename in',
+    'src/renderer/src/components/Sidebar/Sidebar.tsx (logs under the `AutoName` tag).',
+    'Read the app log for those lines to see which step stalled (token refresh or the cli.js title request),',
+    'then fix the root cause. Show changes as Edit diffs, and do not commit.'
+  ].join('\n')
+}
+
 function isCodexSession(sessionId: string): boolean {
   const state = useSessionStore.getState()
   return (
@@ -169,7 +192,18 @@ export function Sidebar({
     worktreeInfo: WorktreeInfo
   } | null>(null)
   const [renamingKey, setRenamingKey] = useState<string | null>(null)
-  const [showHidden, setShowHidden] = useState(false)
+  // Hidden chats and projects stay out of sight unless asked for, one project at a time (its
+  // right-click menu). A project hidden whole has no row to click, so the Projects header's menu
+  // reveals those for all projects at once.
+  const [revealedHidden, setRevealedHidden] = useState<ReadonlySet<string>>(() => new Set())
+  const [showHiddenProjects, setShowHiddenProjects] = useState(false)
+  const toggleRevealHidden = useCallback((key: string): void => {
+    setRevealedHidden((prev) => {
+      const next = new Set(prev)
+      if (!next.delete(key)) next.add(key)
+      return next
+    })
+  }, [])
   // Chats the Claude desktop app archived: listed, or left out (the choice is the menu's toggle).
   useArchivedChatsRefresh()
   // Profiles: the kid's sandboxed profile sees only chats in his sandbox folder, and the owner's
@@ -208,7 +242,11 @@ export function Sidebar({
 
   const hiddenSessionSet = useMemo(() => new Set(hiddenSessionIds), [hiddenSessionIds])
   const hiddenProjectSet = useMemo(() => new Set(hiddenProjectKeys), [hiddenProjectKeys])
-  const hasAnyHidden = hiddenSessionIds.length > 0 || hiddenProjectKeys.length > 0
+  // A hidden chat shows when its project has been revealed from the project's menu.
+  const hiddenChatShows = useCallback(
+    (info: SessionInfo): boolean => revealedHidden.has(info.projectKey || info.cwd),
+    [revealedHidden]
+  )
 
   // Find the projectKey for a session from directories. The SESSION's key, not
   // its group's: a transcript cli.js relocated into a worktree's project dir is
@@ -279,8 +317,51 @@ export function Sidebar({
       if (!conversationText) return
       // Show a temporary "generating..." title
       setCustomTitle(sessionId, 'generating...')
+      const startedAt = Date.now()
       try {
-        const generated = await window.api.generateTitle(conversationText)
+        // Backstop: if main never answers (IPC lost, cli.js stuck) or answers with
+        // nothing, try once more before giving up, so a stuck attempt heals itself.
+        let generated: string | null = null
+        let failures = 0
+        for (let attempt = 1; attempt <= TITLE_ATTEMPTS && !generated; attempt++) {
+          if (attempt > 1) await new Promise((resolve) => setTimeout(resolve, 2000))
+          let timer: ReturnType<typeof setTimeout> | undefined
+          try {
+            generated = await Promise.race([
+              window.api.generateTitle(conversationText),
+              new Promise<never>((_, reject) => {
+                timer = setTimeout(() => reject(new Error('no reply from main in 60s')), 60_000)
+              })
+            ])
+          } catch (err) {
+            failures++
+            window.api.logError(
+              'AutoName',
+              `attempt ${attempt} for ${sessionId} failed after ${Date.now() - startedAt}ms: ${err}`
+            )
+          } finally {
+            clearTimeout(timer)
+          }
+        }
+        // Every attempt timed out or errored (an empty answer is not a failure): hand the
+        // problem to a fresh Claude thread. Once per app run, so a repair thread whose own
+        // naming fails cannot spawn another.
+        if (failures >= TITLE_ATTEMPTS && !repairThreadStarted) {
+          repairThreadStarted = true
+          const repairId = uuid()
+          window.api.logError('AutoName', `starting repair thread ${repairId} for ${sessionId}`)
+          createNewSession(repairId, TITLE_REPAIR_CWD, false)
+          void useSessionStore
+            .getState()
+            .retrySend(repairId, titleRepairPrompt(sessionId, Date.now() - startedAt))
+            .catch((err) =>
+              window.api.logError('AutoName', `repair thread failed to start: ${err}`)
+            )
+        }
+        window.api.logError(
+          'AutoName',
+          `generateTitle for ${sessionId} -> ${JSON.stringify(generated)} in ${Date.now() - startedAt}ms`
+        )
         if (generated) {
           applyTitle(sessionId, generated)
         } else {
@@ -304,11 +385,14 @@ export function Sidebar({
           }
         }
       } catch (err) {
-        window.api.logError('Sidebar', `Auto-generate title failed for ${sessionId}: ${err}`)
+        window.api.logError(
+          'Sidebar',
+          `Auto-generate title failed for ${sessionId} after ${Date.now() - startedAt}ms: ${err}`
+        )
         setCustomTitle(sessionId, '') // clear stuck "generating..." title
       }
     },
-    [setCustomTitle, applyTitle]
+    [setCustomTitle, applyTitle, createNewSession]
   )
 
   const handleRenameRef = useRef(handleRename)
@@ -565,17 +649,18 @@ export function Sidebar({
   const pinnedSessions = useMemo(() => {
     const result: SessionInfo[] = []
     for (const rid of pinnedSessionIds) {
-      if (!showHidden && hiddenSessionSet.has(rid)) continue
       if (isArchivedAway(rid)) continue
       const info = resolveSessionInfo(rid)
-      if (info && inProfile(info.cwd)) result.push(info)
+      if (!info || !inProfile(info.cwd)) continue
+      if (hiddenSessionSet.has(rid) && !hiddenChatShows(info)) continue
+      result.push(info)
     }
     return result
   }, [
     pinnedSessionIds,
     resolveSessionInfo,
     hiddenSessionSet,
-    showHidden,
+    hiddenChatShows,
     isArchivedAway,
     inProfile
   ])
@@ -585,10 +670,11 @@ export function Sidebar({
     for (const [rid, data] of Object.entries(sidebarSessions)) {
       if (!data.isWatching) continue
       if (pinnedSet.has(rid)) continue
-      if (!showHidden && hiddenSessionSet.has(rid)) continue
       if (isArchivedAway(rid)) continue
       const info = resolveSessionInfo(rid)
-      if (info && inProfile(info.cwd)) result.push(info)
+      if (!info || !inProfile(info.cwd)) continue
+      if (hiddenSessionSet.has(rid) && !hiddenChatShows(info)) continue
+      result.push(info)
     }
     return result
   }, [
@@ -596,7 +682,7 @@ export function Sidebar({
     pinnedSet,
     resolveSessionInfo,
     hiddenSessionSet,
-    showHidden,
+    hiddenChatShows,
     isArchivedAway,
     inProfile
   ])
@@ -804,6 +890,19 @@ export function Sidebar({
     inProfile
   ])
 
+  // A project hidden whole, or with every chat hidden, has no row to right-click: the Projects
+  // header's menu is how those come back.
+  const hasHiddenProjects = useMemo(
+    () =>
+      augmentedDirs.some(
+        (group) =>
+          hiddenProjectSet.has(group.projectKey) ||
+          (group.sessions.length > 0 &&
+            group.sessions.every((s) => hiddenSessionSet.has(s.sessionId)))
+      ),
+    [augmentedDirs, hiddenProjectSet, hiddenSessionSet]
+  )
+
   // Opening a thread opens its folder. Runs once per newly active thread, so a folder the
   // user then closes by hand stays closed; waits until the thread shows up in a group.
   const expandedForSession = useRef<string | null>(null)
@@ -821,9 +920,11 @@ export function Sidebar({
       augmentedDirs.flatMap((group) =>
         group.sessions
           .map((s) => s.sessionId)
-          .filter((id) => showHidden || !hiddenSessionSet.has(id))
+          .filter(
+            (id) => revealedHidden.has(group.projectKey || group.cwd) || !hiddenSessionSet.has(id)
+          )
       ),
-    [augmentedDirs, showHidden, hiddenSessionSet]
+    [augmentedDirs, revealedHidden, hiddenSessionSet]
   )
   const selectedHiddenCount = useMemo(
     () => [...selectedIds].filter((id) => hiddenSessionSet.has(id)).length,
@@ -904,8 +1005,9 @@ export function Sidebar({
         augmentedDirs={augmentedDirs}
         hiddenSessionSet={hiddenSessionSet}
         hiddenProjectSet={hiddenProjectSet}
-        hasAnyHidden={hasAnyHidden}
-        showHidden={showHidden}
+        hasHiddenProjects={hasHiddenProjects}
+        revealedHidden={revealedHidden}
+        showHiddenProjects={showHiddenProjects}
         hasAnyArchived={archivedIds.size > 0}
         showArchived={showArchived}
         onShowArchivedToggle={toggleShowArchived}
@@ -934,7 +1036,8 @@ export function Sidebar({
         onSwitchProfile={window.api.setProfile ? handleSwitchProfile : undefined}
         onNewSessionDblClick={handleNewSessionDblClick}
         onSetActiveView={setActiveView}
-        onShowHiddenToggle={() => setShowHidden((v) => !v)}
+        onToggleRevealHidden={toggleRevealHidden}
+        onToggleShowHiddenProjects={() => setShowHiddenProjects((v) => !v)}
         onSetRenamingKey={setRenamingKey}
         onClickSession={handleClickSession}
         onToggleWatch={handleToggleWatch}

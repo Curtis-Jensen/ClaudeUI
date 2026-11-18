@@ -40,6 +40,8 @@ export const DirectoryItem = memo(function DirectoryItem({
   hidden,
   hiddenSessionIds,
   showHidden,
+  hasHiddenChats = false,
+  onToggleShowHidden,
   onHideSession,
   onUnhideSession,
   onDeleteSession,
@@ -78,6 +80,10 @@ export const DirectoryItem = memo(function DirectoryItem({
   hiddenSessionIds?: Set<string>
   /** When true, hidden sessions still render (dimmed) */
   showHidden?: boolean
+  /** This project has chats the user hid: its menu offers to show them. */
+  hasHiddenChats?: boolean
+  /** Show, or hide again, this project's hidden chats. */
+  onToggleShowHidden?: () => void
   onHideSession?: (info: SessionInfo) => void
   onUnhideSession?: (info: SessionInfo) => void
   onDeleteSession?: (info: SessionInfo) => void
@@ -448,8 +454,21 @@ export const DirectoryItem = memo(function DirectoryItem({
               Remove from folder
             </button>
           )}
-          {(onHide || onUnhide || onDelete) && (
+          {(onHide || onUnhide || onDelete || onToggleShowHidden) && (
             <div role="separator" className="h-px bg-border my-1" />
+          )}
+          {onToggleShowHidden && (hasHiddenChats || hidden || showHidden) && (
+            <button
+              role="menuitem"
+              data-testid="DirectoryItem.showHidden"
+              onClick={() => {
+                menu.close()
+                onToggleShowHidden()
+              }}
+              className="w-full text-left px-3 py-1.5 text-[12px] text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors cursor-default"
+            >
+              {showHidden ? 'Hide hidden chats' : 'Show hidden chats'}
+            </button>
           )}
           {onHide && !hidden && (
             <button

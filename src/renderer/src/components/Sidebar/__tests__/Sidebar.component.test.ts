@@ -307,7 +307,7 @@ describe('Sidebar FC', () => {
       act(() => viewProps.onToggleSelecting?.())
       act(() => viewProps.onSelectAll?.())
       expect(picked()).toEqual(['a', 'c'])
-      act(() => viewProps.onShowHiddenToggle())
+      act(() => viewProps.onToggleRevealHidden(PROJECT_KEY))
       act(() => viewProps.onSelectAll?.())
       expect(picked()).toEqual(['a', 'b', 'c'])
     })
@@ -361,7 +361,7 @@ describe('Sidebar FC', () => {
 
     it('Hide only counts the picked chats that are not hidden already', async () => {
       await mountWith(['a', 'b', 'c'], { hidden: ['b'] })
-      act(() => viewProps.onShowHiddenToggle())
+      act(() => viewProps.onToggleRevealHidden(PROJECT_KEY))
       act(() => viewProps.onToggleSelecting?.())
       act(() => viewProps.onSelectAll?.())
       expect(viewProps.selectedHiddenCount).toBe(1)
@@ -371,7 +371,7 @@ describe('Sidebar FC', () => {
 
     it('Unhide brings back the picked chats that were hidden', async () => {
       await mountWith(['a', 'b', 'c'], { hidden: ['a', 'b'] })
-      act(() => viewProps.onShowHiddenToggle())
+      act(() => viewProps.onToggleRevealHidden(PROJECT_KEY))
       act(() => viewProps.onToggleSelecting?.())
       act(() => viewProps.onToggleSelected?.('a'))
       act(() => viewProps.onToggleSelected?.('c'))

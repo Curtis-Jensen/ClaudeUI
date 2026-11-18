@@ -29,8 +29,9 @@ function renderView(overrides: Partial<SidebarViewProps> = {}): SidebarViewProps
     augmentedDirs: [group],
     hiddenSessionSet: new Set(),
     hiddenProjectSet: new Set(),
-    hasAnyHidden: false,
-    showHidden: false,
+    hasHiddenProjects: false,
+    revealedHidden: new Set(),
+    showHiddenProjects: false,
     expandedDirs: new Set([group.projectKey]),
     renamingKey: null,
     worktreesModalCwd: null,
@@ -40,7 +41,8 @@ function renderView(overrides: Partial<SidebarViewProps> = {}): SidebarViewProps
     onNewSession: noop,
     onNewSessionDblClick: noop,
     onSetActiveView: noop,
-    onShowHiddenToggle: noop,
+    onToggleRevealHidden: noop,
+    onToggleShowHiddenProjects: noop,
     onSetRenamingKey: noop,
     onClickSession: noop,
     onToggleWatch: noop,
@@ -101,11 +103,34 @@ describe('SidebarView archived toggle', () => {
     expect(onShowArchivedToggle).toHaveBeenCalledTimes(1)
   })
 
-  it('sits beside the hidden toggle, which still works', () => {
-    const onShowHiddenToggle = vi.fn()
-    renderView({ hasAnyArchived: true, hasAnyHidden: true, onShowHiddenToggle })
+  it('no longer has a project-wide hidden toggle in the header', () => {
+    renderView({ hasAnyArchived: true, hasHiddenProjects: true })
     expect(screen.getByTestId('Sidebar.showArchivedToggle')).toBeInTheDocument()
-    fireEvent.click(screen.getByTestId('Sidebar.showHiddenToggle'))
-    expect(onShowHiddenToggle).toHaveBeenCalledTimes(1)
+    expect(screen.queryByTestId('Sidebar.showHiddenToggle')).toBeNull()
+  })
+
+  it('right-clicking the Projects header offers to show hidden projects', () => {
+    const onToggleShowHiddenProjects = vi.fn()
+    renderView({ hasHiddenProjects: true, onToggleShowHiddenProjects })
+    fireEvent.contextMenu(screen.getByText('Projects'))
+    fireEvent.click(screen.getByTestId('Sidebar.showHiddenProjects'))
+    expect(onToggleShowHiddenProjects).toHaveBeenCalledTimes(1)
+  })
+
+  it('a project menu reveals the hidden chats of that project', () => {
+    const onToggleRevealHidden = vi.fn()
+    const withChats = {
+      ...group,
+      sessions: [{ sessionId: 's1' }, { sessionId: 's2' }]
+    } as DirectoryGroup
+    renderView({
+      augmentedDirs: [withChats],
+      hiddenSessionSet: new Set(['s2']),
+      expandedDirs: new Set(),
+      onToggleRevealHidden
+    })
+    fireEvent.contextMenu(screen.getByTestId('DirectoryItem').firstElementChild as Element)
+    fireEvent.click(screen.getByTestId('DirectoryItem.showHidden'))
+    expect(onToggleRevealHidden).toHaveBeenCalledWith(group.projectKey || group.cwd)
   })
 })

@@ -19,6 +19,7 @@ import {
   moveSessionToFolder,
   useProjectFolders
 } from '../../lib/project-folders'
+import { useContextMenu } from '../../hooks/useContextMenu'
 import { useProfile } from '../../lib/profile'
 import { isInsideOrEqual } from '../../../../shared/profile'
 import { SessionItem } from './SessionItem'
@@ -58,8 +59,12 @@ export interface SidebarViewProps {
   augmentedDirs: DirectoryGroup[]
   hiddenSessionSet: Set<string>
   hiddenProjectSet: Set<string>
-  hasAnyHidden: boolean
-  showHidden: boolean
+  /** Some project is hidden whole: the Projects header menu offers to list them. */
+  hasHiddenProjects: boolean
+  /** Projects whose hidden chats are listed (chosen from each project's right-click menu). */
+  revealedHidden: ReadonlySet<string>
+  /** Whole hidden projects are listed too. */
+  showHiddenProjects: boolean
   /** The Claude desktop app has archived chats: the toggle for listing them is offered. */
   hasAnyArchived?: boolean
   showArchived?: boolean
@@ -94,7 +99,8 @@ export interface SidebarViewProps {
   onSwitchProfile?: () => void
   onNewSessionDblClick: () => void
   onSetActiveView: (v: ActiveView) => void
-  onShowHiddenToggle: () => void
+  onToggleRevealHidden: (projectKey: string) => void
+  onToggleShowHiddenProjects: () => void
   onSetRenamingKey: (key: string | null) => void
   onClickSession: (info: SessionInfo) => void
   onToggleWatch: (info: SessionInfo) => void
@@ -138,8 +144,9 @@ export function SidebarView(props: SidebarViewProps): React.JSX.Element {
     augmentedDirs,
     hiddenSessionSet,
     hiddenProjectSet,
-    hasAnyHidden,
-    showHidden,
+    hasHiddenProjects,
+    revealedHidden,
+    showHiddenProjects,
     hasAnyArchived = false,
     showArchived = true,
     onShowArchivedToggle,
@@ -168,7 +175,8 @@ export function SidebarView(props: SidebarViewProps): React.JSX.Element {
     onSwitchProfile,
     onNewSessionDblClick,
     onSetActiveView,
-    onShowHiddenToggle,
+    onToggleRevealHidden,
+    onToggleShowHiddenProjects,
     onSetRenamingKey,
     onClickSession,
     onToggleWatch,
@@ -195,6 +203,7 @@ export function SidebarView(props: SidebarViewProps): React.JSX.Element {
   } = props
   const projectFolders = useProjectFolders()
   const chatDir = useProfile((s) => s.chatDir)
+  const headerMenu = useContextMenu()
 
   return (
     <div
@@ -436,6 +445,7 @@ export function SidebarView(props: SidebarViewProps): React.JSX.Element {
             <div
               style={{ paddingLeft: 5, marginBottom: 3 }}
               className="flex items-center justify-between pr-1"
+              onContextMenu={hasHiddenProjects ? headerMenu.open : undefined}
             >
               <span className="text-[10px] font-semibold text-text-muted uppercase tracking-[0.08em]">
                 Projects
@@ -468,19 +478,29 @@ export function SidebarView(props: SidebarViewProps): React.JSX.Element {
                       {showArchived ? 'Hide archived' : 'Show archived'}
                     </button>
                   )}
-                  {hasAnyHidden && (
-                    <button
-                      data-testid="Sidebar.showHiddenToggle"
-                      onClick={onShowHiddenToggle}
-                      className="text-[10px] text-text-muted hover:text-text-primary transition-colors cursor-default"
-                      title={showHidden ? 'Hide dimmed items' : 'Show hidden items'}
-                    >
-                      {showHidden ? 'Hide hidden' : 'Show hidden'}
-                    </button>
-                  )}
                 </div>
               }
             </div>
+            {headerMenu.isOpen && (
+              <div
+                ref={headerMenu.ref}
+                role="menu"
+                className="fixed z-50 min-w-[160px] py-1 rounded-lg bg-bg-tertiary border border-border shadow-lg"
+                style={headerMenu.style}
+              >
+                <button
+                  role="menuitem"
+                  data-testid="Sidebar.showHiddenProjects"
+                  onClick={() => {
+                    headerMenu.close()
+                    onToggleShowHiddenProjects()
+                  }}
+                  className="w-full text-left px-3 py-1.5 text-[12px] text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors cursor-default"
+                >
+                  {showHiddenProjects ? 'Hide hidden projects' : 'Show hidden projects'}
+                </button>
+              </div>
+            )}
             {selecting && (
               <div
                 data-testid="Sidebar.bulkBar"
@@ -563,11 +583,18 @@ export function SidebarView(props: SidebarViewProps): React.JSX.Element {
             >
               {(() => {
                 const visibleGroups = augmentedDirs
-                  .filter((group) => showHidden || !hiddenProjectSet.has(group.projectKey))
+                  .filter(
+                    (group) =>
+                      showHiddenProjects ||
+                      revealedHidden.has(group.projectKey || group.cwd) ||
+                      !hiddenProjectSet.has(group.projectKey)
+                  )
                   // A folder whose chats are all hidden has nothing to show, so it goes too.
                   .filter(
                     (group) =>
-                      showHidden || group.sessions.some((s) => !hiddenSessionSet.has(s.sessionId))
+                      showHiddenProjects ||
+                      revealedHidden.has(group.projectKey || group.cwd) ||
+                      group.sessions.some((s) => !hiddenSessionSet.has(s.sessionId))
                   )
                 // Each tab keeps its own folders; with no tab (kid profile) there are none.
                 const inChat = appMode === 'chat'
@@ -622,7 +649,9 @@ export function SidebarView(props: SidebarViewProps): React.JSX.Element {
                       }
                       onDelete={group.projectKey ? () => onDeleteProject(group) : undefined}
                       hiddenSessionIds={hiddenSessionSet}
-                      showHidden={showHidden}
+                      showHidden={revealedHidden.has(group.projectKey || group.cwd)}
+                      hasHiddenChats={group.sessions.some((s) => hiddenSessionSet.has(s.sessionId))}
+                      onToggleShowHidden={() => onToggleRevealHidden(group.projectKey || group.cwd)}
                       selecting={selecting}
                       selectedIds={selectedIds}
                       onToggleSelected={onToggleSelected}
