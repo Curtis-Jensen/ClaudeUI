@@ -32,34 +32,62 @@ type CallState =
   | { status: 'idle' }
   | { status: 'error'; message: string }
 
+const FIRST_ASK: Asking = { id: 0, question: EDIT_EXPLAIN_QUESTION, history: [] }
+
+/**
+ * The before and after text a unified patch describes: its context and removed
+ * lines, and its context and added lines, without the file and hunk headers.
+ */
+export function patchToBeforeAfter(patch: string): { before: string; after: string } {
+  const before: string[] = []
+  const after: string[] = []
+  for (const line of patch.split('\n')) {
+    if (/^(diff |index |--- |\+\+\+ |@@|\\ No newline)/.test(line)) continue
+    if (line.startsWith('+')) after.push(line.slice(1))
+    else if (line.startsWith('-')) before.push(line.slice(1))
+    else if (line.startsWith(' ')) {
+      before.push(line.slice(1))
+      after.push(line.slice(1))
+    }
+  }
+  return { before: before.join('\n'), after: after.join('\n') }
+}
+
+/**
+ * `autoStart` (default) asks for the explanation as soon as this mounts. A card
+ * that can show many files passes false, so opening it does not fire one model
+ * call per file; each file then offers an "Explain this edit" button instead.
+ */
 export function ExplainEdit({
   path,
   before,
-  after
+  after,
+  autoStart = true
 }: {
   path: string
   before: string
   after: string
+  autoStart?: boolean
 }): React.JSX.Element {
-  const [asking, setAsking] = useState<Asking>({
-    id: 0,
-    question: EDIT_EXPLAIN_QUESTION,
-    history: []
-  })
+  const [asking, setAsking] = useState<Asking | null>(autoStart ? FIRST_ASK : null)
   const [turns, setTurns] = useState<EditChatTurn[]>([])
-  const [call, setCall] = useState<CallState>(() => ({ status: 'loading', startedAt: Date.now() }))
+  const [call, setCall] = useState<CallState>(() =>
+    autoStart ? { status: 'loading', startedAt: Date.now() } : { status: 'idle' }
+  )
   const [log, setLog] = useState<string[]>([])
   const [now, setNow] = useState(() => Date.now())
   const [draft, setDraft] = useState('')
 
   useEffect(() => {
+    if (!asking) return
+    const current = asking
     const startedAt = Date.now()
     let settled = false
     const stamp = (line: string): string =>
       `+${((Date.now() - startedAt) / 1000).toFixed(1)}s renderer: ${line}`
 
     // Stamped now: the other lines are stamped when the answer (or the give-up) lands.
-    const sent = stamp(`asked: ${asking.question}`)
+    const sent = stamp(`asked: ${current.question}`)
     setCall({ status: 'loading', startedAt })
     setNow(startedAt)
     const tick = setInterval(() => setNow(Date.now()), 1000)
@@ -89,11 +117,11 @@ export function ExplainEdit({
     // `Promise.resolve().then` so a synchronous throw (an older preload with no
     // `explainEdit`) lands in the error state instead of crashing the card.
     Promise.resolve()
-      .then(() => window.api.explainEdit(path, before, after, asking.question, asking.history))
+      .then(() => window.api.explainEdit(path, before, after, current.question, current.history))
       .then((result) => {
         const lines = [sent, ...(result?.log ?? []), stamp('got the answer')]
         if (result?.text) {
-          settle({ status: 'idle' }, lines, { question: asking.question, answer: result.text })
+          settle({ status: 'idle' }, lines, { question: current.question, answer: result.text })
         } else {
           settle({ status: 'error', message: result?.error ?? 'No answer came back' }, lines)
         }
@@ -122,11 +150,22 @@ export function ExplainEdit({
     const question = draft.trim()
     if (!question || call.status === 'loading') return
     setDraft('')
-    setAsking((prev) => ({ id: prev.id + 1, question, history: turns }))
+    setAsking((prev) => ({ id: (prev?.id ?? 0) + 1, question, history: turns }))
   }
 
   return (
     <div data-testid="FileEditBody.explain" className="flex flex-col gap-1.5">
+      {!asking && turns.length === 0 && (
+        <button
+          type="button"
+          data-testid="FileEditBody.explain.start"
+          onClick={() => setAsking(FIRST_ASK)}
+          className="self-start text-[11px] text-text-secondary hover:text-text-primary border border-border rounded-md px-2 py-1"
+        >
+          Explain this edit
+        </button>
+      )}
+
       {turns.map((turn, i) => (
         <div key={i} data-testid="FileEditBody.explain.turn" className="flex flex-col gap-1">
           {i > 0 && (
@@ -144,7 +183,7 @@ export function ExplainEdit({
         <div className="flex flex-col gap-1">
           {turns.length > 0 && (
             <p className="text-[11px] text-text-secondary self-end max-w-[85%] text-right">
-              {asking.question}
+              {asking?.question}
             </p>
           )}
           <span data-testid="FileEditBody.explain.loading" className="text-[11px] text-text-muted">
@@ -160,7 +199,7 @@ export function ExplainEdit({
           </span>
           <button
             type="button"
-            onClick={() => setAsking((prev) => ({ ...prev, id: prev.id + 1 }))}
+            onClick={() => setAsking((prev) => (prev ? { ...prev, id: prev.id + 1 } : FIRST_ASK))}
             className="self-start text-[11px] text-text-secondary hover:text-text-primary border border-border rounded-md px-2 py-1"
           >
             Try again

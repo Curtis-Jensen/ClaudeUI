@@ -24,7 +24,7 @@ import { DiffViewer } from '../../../../lib/diff'
 import { TerminalView } from '../../TerminalView'
 import { shorten } from '../../ToolCallBlock/utils'
 import { ExpandableText } from './ExpandableText'
-import { ExplainEdit } from './ExplainEdit'
+import { ExplainEdit, patchToBeforeAfter } from './ExplainEdit'
 import { TOOL_OUTPUT_SCOPE } from '../../ChatSearch/search-scope'
 import type { KindBodyProps } from './types'
 import type { FileDiff } from '../../../../../../shared/types'
@@ -62,6 +62,14 @@ export function FileDiffSections({ files }: { files: FileDiff[] }): React.JSX.El
             virtualize
             className="flex-1"
           />
+          {file.patch && (
+            <ExplainEdit
+              path={file.path}
+              {...patchToBeforeAfter(file.patch)}
+              // One file starts on open like a single edit; several wait for a click.
+              autoStart={files.length === 1}
+            />
+          )}
         </div>
       ))}
     </div>

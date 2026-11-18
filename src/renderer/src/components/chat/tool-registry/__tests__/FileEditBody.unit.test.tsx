@@ -11,6 +11,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { FileEditBody } from '../kinds/FileEditBody'
+import { patchToBeforeAfter } from '../kinds/ExplainEdit'
 import type { KindBodyProps } from '../kinds/types'
 import type { ContentBlock } from '../../../../../../shared/types'
 
@@ -261,6 +262,47 @@ describe('FileEditBody — multi-file diffs (opencode apply_patch view.files)', 
       'data-text',
       'Success. Updated the following files:\nM a.ts\nA b.ts'
     )
+  })
+
+  it('several files: each waits for a click, so opening makes no model calls', async () => {
+    render(
+      <FileEditBody
+        {...baseProps({
+          view: { kind: 'fileEdit', path: '', before: '', after: '', files },
+          result: makeResult('ok')
+        })}
+      />
+    )
+    const starts = screen.getAllByTestId('FileEditBody.explain.start')
+    expect(starts).toHaveLength(2)
+    expect(explainEdit).not.toHaveBeenCalled()
+
+    // The patch's context and changed lines become the before and after text.
+    fireEvent.click(starts[0])
+    expect(await screen.findByText('Changed one value.')).toBeInTheDocument()
+    expect(explainEdit).toHaveBeenCalledWith('a.ts', 'old', 'new', 'Explain this edit.', [])
+  })
+
+  it('one file: starts on open like a single edit', async () => {
+    render(
+      <FileEditBody
+        {...baseProps({
+          view: { kind: 'fileEdit', path: '', before: '', after: '', files: [files[0]] },
+          result: makeResult('ok')
+        })}
+      />
+    )
+    expect(await screen.findByText('Changed one value.')).toBeInTheDocument()
+    expect(screen.queryByTestId('FileEditBody.explain.start')).not.toBeInTheDocument()
+    expect(explainEdit).toHaveBeenCalledTimes(1)
+  })
+
+  it('patchToBeforeAfter keeps context and drops the headers', () => {
+    expect(
+      patchToBeforeAfter(
+        'diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1,3 +1,3 @@\n keep\n-old\n+new\n tail'
+      )
+    ).toEqual({ before: 'keep\nold\ntail', after: 'keep\nnew\ntail' })
   })
 
   it('hideToolInput: the per-file diffs move to Result, not Input', () => {
