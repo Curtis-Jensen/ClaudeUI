@@ -8,8 +8,8 @@
  *  - no diff (MultiEdit): generic JSON input + TerminalView result.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { act, render, screen } from '@testing-library/react'
 import { FileEditBody } from '../kinds/FileEditBody'
 import type { KindBodyProps } from '../kinds/types'
 import type { ContentBlock } from '../../../../../../shared/types'
@@ -37,7 +37,11 @@ vi.mock('../../TerminalView', () => ({
 // The Explain box asks the host for a Haiku summary as soon as the diff mounts.
 let explainEdit: ReturnType<typeof vi.fn>
 beforeEach(() => {
-  explainEdit = vi.fn(async () => 'Changed one value.')
+  explainEdit = vi.fn(async () => ({
+    text: 'Changed one value.',
+    error: null,
+    log: ['+0.1s message: assistant']
+  }))
   ;(globalThis as any).window.api = { explainEdit }
 })
 
@@ -78,16 +82,72 @@ describe('FileEditBody — Explain summary', () => {
     expect(explainEdit).toHaveBeenCalledWith('/a.ts', 'old', 'new')
   })
 
-  it('shows the retry button instead of crashing when the host has no explainEdit', async () => {
-    ;(globalThis as any).window.api = {}
+  it('shows the host trace under Details when the summary arrives', async () => {
     render(<FileEditBody {...baseProps({})} />)
-    expect(await screen.findByText("Couldn't explain, try again")).toBeInTheDocument()
+    await screen.findByText('Changed one value.')
+    const log = screen.getByTestId('FileEditBody.explain.log')
+    expect(log).toHaveTextContent('renderer: asked the app')
+    expect(log).toHaveTextContent('+0.1s message: assistant')
+    expect(log).toHaveTextContent('renderer: got the answer')
   })
 
-  it('offers a retry when the summary fails', async () => {
-    explainEdit.mockResolvedValueOnce(null)
+  it('shows the error and the trace instead of crashing when the host has no explainEdit', async () => {
+    ;(globalThis as any).window.api = {}
     render(<FileEditBody {...baseProps({})} />)
-    expect(await screen.findByText("Couldn't explain, try again")).toBeInTheDocument()
+    expect(await screen.findByTestId('FileEditBody.explain.error')).toHaveTextContent(
+      "Couldn't explain:"
+    )
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument()
+    expect(screen.getByTestId('FileEditBody.explain.log')).toHaveTextContent('call failed')
+  })
+
+  it("shows the host's reason and its trace when the summary fails", async () => {
+    explainEdit.mockResolvedValueOnce({
+      text: null,
+      error: 'Timed out after 45s',
+      log: ['+0.0s starting Haiku query', '+45.0s no answer after 45s, aborting']
+    })
+    render(<FileEditBody {...baseProps({})} />)
+    expect(await screen.findByTestId('FileEditBody.explain.error')).toHaveTextContent(
+      'Timed out after 45s'
+    )
+    expect(screen.getByTestId('FileEditBody.explain.log')).toHaveTextContent(
+      '+0.0s starting Haiku query'
+    )
+  })
+
+  describe('while waiting', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+      explainEdit.mockImplementation(() => new Promise(() => {}))
+    })
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('counts down to the timeout', () => {
+      render(<FileEditBody {...baseProps({})} />)
+      expect(screen.getByTestId('FileEditBody.explain.loading')).toHaveTextContent(
+        '45s until timeout'
+      )
+      act(() => {
+        vi.advanceTimersByTime(3000)
+      })
+      expect(screen.getByTestId('FileEditBody.explain.loading')).toHaveTextContent(
+        '42s until timeout'
+      )
+    })
+
+    it('gives up on its own if the app never answers', () => {
+      render(<FileEditBody {...baseProps({})} />)
+      act(() => {
+        vi.advanceTimersByTime(50_000)
+      })
+      expect(screen.getByTestId('FileEditBody.explain.error')).toHaveTextContent(
+        'No reply from the app after 50s'
+      )
+      expect(screen.getByTestId('FileEditBody.explain.log')).toHaveTextContent('gave up waiting')
+    })
   })
 })
 

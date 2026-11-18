@@ -92,7 +92,7 @@ beforeEach(() => {
     fetchAccountUsage: () => Promise.resolve(null),
     fetchBlockUsage: () => Promise.resolve(null),
     getPluginViews: () => Promise.resolve([]),
-    explainEdit: vi.fn(async () => 'Changed one value.')
+    explainEdit: vi.fn(async () => ({ text: 'Changed one value.', error: null, log: [] }))
   }
   // Use createNewSession for a complete session shape (BackgroundBashOutput reads
   // backgroundWatcherCounts/backgroundOutputs from it for foreground/bg bash).

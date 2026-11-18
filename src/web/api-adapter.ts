@@ -14,6 +14,7 @@ import type {
   TerminalAvailability
 } from '../shared/types'
 import type { IdeAvailability, IdeEntry, InvokeProgress } from '../shared/remote-protocol'
+import type { EditSummaryResult } from '../shared/edit-summary'
 import { buildMockupHttpUrl } from '../shared/mockup-url'
 import { buildSentFileUrl } from '../shared/sent-file-url'
 import { derivePasswordProof } from './password-proof'
@@ -478,7 +479,12 @@ export function createWebSocketApi(connection: RemoteConnection): ClaudeAPI {
     generateCommitMessage: (diff) =>
       connection.invoke('session:generate-commit-message', diff) as Promise<string | null>,
     explainEdit: (fileName, before, after) =>
-      connection.invoke('session:explain-edit', fileName, before, after) as Promise<string | null>,
+      connection.invoke(
+        'session:explain-edit',
+        fileName,
+        before,
+        after
+      ) as Promise<EditSummaryResult>,
 
     writeCustomTitle: (sessionId, projectKey, title) =>
       connection.invoke(

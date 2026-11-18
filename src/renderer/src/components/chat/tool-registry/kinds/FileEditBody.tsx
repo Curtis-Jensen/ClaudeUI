@@ -20,74 +20,16 @@
  * renderer). Still rendered exactly once (Input, or Result when hideToolInput).
  */
 
-import { useEffect, useState } from 'react'
 import { DiffViewer } from '../../../../lib/diff'
 import { TerminalView } from '../../TerminalView'
 import { shorten } from '../../ToolCallBlock/utils'
 import { ExpandableText } from './ExpandableText'
+import { ExplainEdit } from './ExplainEdit'
 import { TOOL_OUTPUT_SCOPE } from '../../ChatSearch/search-scope'
 import type { KindBodyProps } from './types'
 import type { FileDiff } from '../../../../../../shared/types'
 
 const DEFAULT_MAX_CHARS = 5000
-
-type ExplainState = { status: 'loading' } | { status: 'done'; text: string } | { status: 'error' }
-
-/** Plain-English Haiku summary of one edit, requested when the card opens. */
-function ExplainEdit({
-  path,
-  before,
-  after
-}: {
-  path: string
-  before: string
-  after: string
-}): React.JSX.Element {
-  const [state, setState] = useState<ExplainState>({ status: 'loading' })
-  // Bumped by the retry button; the effect below runs once per attempt.
-  const [attempt, setAttempt] = useState(0)
-
-  // This body only mounts while the card is open, so the summary starts as soon
-  // as it is expanded. Collapsing unmounts it; a reopen asks again.
-  useEffect(() => {
-    let cancelled = false
-    setState({ status: 'loading' })
-    // `Promise.resolve().then` so a synchronous throw (an older preload with no
-    // `explainEdit`) lands in the same error state as a failed summary instead
-    // of crashing the card.
-    Promise.resolve()
-      .then(() => window.api.explainEdit(path, before, after))
-      .then((text) => {
-        if (!cancelled) setState(text ? { status: 'done', text } : { status: 'error' })
-      })
-      .catch(() => {
-        if (!cancelled) setState({ status: 'error' })
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [path, before, after, attempt])
-
-  return (
-    <div data-testid="FileEditBody.explain" className="flex flex-col gap-1.5">
-      {state.status === 'done' ? (
-        <p className="text-[12px] text-text-primary leading-snug bg-bg-primary rounded-md p-2 border border-border">
-          {state.text}
-        </p>
-      ) : state.status === 'error' ? (
-        <button
-          type="button"
-          onClick={() => setAttempt((n) => n + 1)}
-          className="self-start text-[11px] text-text-secondary hover:text-text-primary border border-border rounded-md px-2 py-1"
-        >
-          Couldn't explain, try again
-        </button>
-      ) : (
-        <span className="text-[11px] text-text-muted">Explaining…</span>
-      )}
-    </div>
-  )
-}
 
 export function FileDiffSections({ files }: { files: FileDiff[] }): React.JSX.Element {
   return (
